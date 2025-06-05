@@ -1,0 +1,12 @@
+(ns "math")
+
+(storage
+ {:internal
+  [(def pi "3.141")]})
+
+(functions
+ {:external
+  [
+   (defn add [(x :uint256) (y :uint256)]
+     (+ x y))
+   ]})
