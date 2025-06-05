@@ -1,0 +1,70 @@
+;; TODO: currently there are no types :)
+(ns "ERC20") ; In Yul it'll be the main `object "" {}`)
+
+;; TODO: importing might look like this:
+;; (ns "safe-math"
+;;     (:import "MathUtils" [mod sqrt]))
+;; Imported namespaces could have addresses assigned to them,
+;; therefore compiler will treat interactions with their functions
+;; always as [STATIC]CALLs.
+;; e.g.: (:import "UniswapRouterV2" [swapExactTokenForTokens]
+;;                [:at 0xE592427A0AEce92De3Edee1F18E0157C05861564
+;;                 :as "UniV2"])
+;; imports should be resolved during compilation.
+
+(constructor [(supply :uint256)]
+  (do
+    (set! owner msg/sender)
+    (set! totalSupply supply)))
+
+(storage
+ {:external
+  ;; TODO: with this custom-slot feature it's needed to
+  ;;        add a compile-time storage-collision checks.
+    [(def totalSupply :uint256 {:slot 0x05}) ; Note: MUST be in hex format.
+     (def balances :mapping address => :uint256)]
+   
+   :internal
+    [(def owner :address)]})
+
+(events
+ [(def Transfer [(sender: address) (to: address) (amount: uint256)])
+  (def Mint [(to: address)(amount: uint256)])])
+
+(functions
+ ;; Still can be accessed via JUMP instead of CALL.
+  {:external
+    [(defn transfer [(to :address) (amount :uint256)] :bool
+       (require (> balances[msg/sender] amount))
+       (set! balances[msg/sender] (- balances[msg/sender] amount))
+       (set! balances[to] (+ balances[to] amount))
+       (emit Transfer msg/sender to amount)
+       true)
+
+     (defn mint [(to: address) (amount: uint256)]
+       (require (= msg/sender sto/owner))
+       (in/_mint to amount))
+     
+     (defn swap [(tokenIn :address) (tokenOut :address)
+                 (amountIn :uint256) (amountOut :uint256)]
+       (UniV2.ex/swapExactTokenForTokens tokenIn tokenOut amountIn amountOut))
+
+     ;; Higher-order function idea.
+     ;; In Yul we will say that `transfer-ho` takes function's pos
+     ;; as an argument, so when the function will be actually called
+     ;; in the function body, in Yul it will look like a JUMP to that pos.
+     ;; And when function will be passed as an argument in Yul we
+     ;; will say that it actually passes pos of that function,
+     ;; so we can properly JUMP to it.
+     (defn transfer-ho [(transfer-fn :[fn [(to :address) (amount :uint256)]: bool])
+                        (to :address)
+                        (amount :uint256)
+                        ]
+       (transfer-fn to amount))
+     ]
+   
+   :internal
+    [(defn _mint [(account :address) (amount :uint256)]
+       (set! totalSupply (+ totalSupply amount))
+       (set! balances[account] (+ balances[account] amount))
+       (emit Mint account amount))]})
