@@ -38,7 +38,6 @@
   analysis step."
   [in]
   (rdr
-   ; TODO: Ignore comments
    (filter (fn [x] (not= \; (first x)))
            (map string/trim
                 (map second (re-seq TOKENS-REGEX in))))))
@@ -76,8 +75,7 @@
   "Produces AST on tokenized input.
   Executes syntactical analysis step."
   [rdr]
-  (let [tkn (rpeek rdr)
-        ast []]
+  (let [tkn (rpeek rdr)]
     (cond
       (= tkn "'") (do (rnext rdr) (list 'quote (read-form rdr)))
       (= tkn "`") (do (rnext rdr) (list 'quasiquote (read-form rdr)))
