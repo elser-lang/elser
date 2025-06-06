@@ -1,6 +1,8 @@
 (ns evmlisp.compiler
   (:gen-class)
-  (:require [clojure.string :as string]))
+  (:require [clojure.string :as string]
+            [evmlisp.errors :as errs]
+            [evmlisp.core :as core]))
 
 (def yul-builder
   {:contract-name nil
@@ -9,41 +11,59 @@
    {:storage {:external [] :internal []}
     :functions {:external [] :internal []}}})
 
-(defn def-to-symbol
+(defn defn-to-signature
+  "Converts evmlisps's definitions to function signatures."
+  [fn-name args]
+  (format "%s(%s)" fn-name
+          ;; Get all types of a function defintion.
+          (string/join ","
+                       (map name
+                            (map (fn [v] (get (vec v) 1)) args)))))
+
+(defn args-to-symbols
+  "
+  Produces {:name ... :type ...} map on
+  a given [(arg_0 :type) ... (arg_n :type)]
+  "
+  [args]
+  (map (fn [v]
+         {:name (get (vec v) 0)
+          :type (name (get (vec v) 1))})
+       args))
+
+(defn s-exp-to-yul
+  "Produces Yul operation on given s-expressions."
+  [body]
+  body)
+
+(defn inner-to-symbols
   "Convert language defintions to common symbol-table data."
-  [definition]
+  [definition external?]
   (if (nil? definition) (vec nil)
       (let [operation (first definition)
-            fn-name (first (rest definition))
+            def-name (first (rest definition))
             types (rest (rest definition))]
-        (println ":ARGUMENTI" types)
+        
         (cond
-          (let [body (nth (- (count types)1))]
-          ;; Function definition
-          (= operation 'defn)
-          ;;(let [args (first types)]
-          ;; ∀ f ∈ :functions (rest (rest f)) => ([(arg0 :type) ... (argn :type)] :type)
-          {:name fn-name
-           
-           :signature (format "%s(%s)" fn-name
-                              ;; Get all types of a function defintion.
-                              (string/join ","
-                                           (map name
-                                                (map (fn [v] (get (vec v) 1)) (first types)))))
-           
-           :args (map (fn [v] {
-                              :name (get (vec v) 0)
-                              :type (name (get (vec v) 1))})
-                      (first types))
-           :returns (format "fixme:%s" (last types)) ; TODO: properly produce return types.
-           }
+          ;; Parse function definitions.
+          (= operation 'defn)          
+          (let [fn-body (nth types (- (count types) 1))
+                args (first types)
+                return (nth types 1)
+                signature (defn-to-signature def-name args)]
+            
+            {
+             :name def-name             
+             :signature signature             
+             :args (args-to-symbols args)
+             :body (s-exp-to-yul fn-body)
+             :returns (map (fn [v] {:type (name v)}) return)})
 
           ;; Storage variable definition
           (= operation 'def)
-          ;; ∀ s ∈ :storage (rest (rest s))   => (:uint256 => ... =>)
           {
-           :name fn-name
-           ;:signature (rest types)
+           :name def-name
+           :signature (if external? "todo:external-sig" nil)
            }
           ))))
 
@@ -87,19 +107,19 @@
 (defn storage-to-symbols [definitions]
   {:storage
    {
-    :external (map (fn [d] (def-to-symbol d))
+    :external (map (fn [d] (inner-to-symbols d true))
                    (:external definitions))
     
-    :internal (map (fn [d] (def-to-symbol d))
+    :internal (map (fn [d] (inner-to-symbols d false))
                    (:internal definitions))}})
 
 (defn fns-to-symbols [definitions]
   {:functions
    {
-    :external (map (fn [d] (def-to-symbol d))
+    :external (map (fn [d] (inner-to-symbols d true))
                    (:external definitions))
     
-    :internal (map (fn [d] (def-to-symbol d))
+    :internal (map (fn [d] (inner-to-symbols d false))
                    (:internal definitions))}})
 
 
@@ -110,6 +130,9 @@
         internal (:internal x)]
     {:external external
      :internal internal}))
+
+;; TODO: implement
+(defn process-constructor [constructor] constructor)
 
 (defn process-functions [functions]
     (let [fns (process-ex-in functions)]
@@ -152,7 +175,7 @@
 ;    {:name "transfer",
 ;     :selector "0xa9059cbb",
 ;     :signature "transfer(address,uint256)",
-;     :body '(+ x x)
+;     :body '(+ x x) ; (s-expressions)
 ;     :args [{:name "to", :type :address}, 
 ;            {:name "amount", :type :uint256}],
 ;     :returns :bool,
@@ -178,7 +201,10 @@
        ;; Namespace defintion.
        (and (list? form) (= 'ns (first form)))
        (assoc symbols :ns (second form))
-              
+
+       (and (list? form) (= 'constructor (first form)))
+       (merge symbols (process-constructor form))
+       
        (and (list? form) (= 'storage (first form)))
        (merge symbols (process-storage form))
        

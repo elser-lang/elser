@@ -133,7 +133,8 @@
       (:yul options)
       (let [yul (compiler/compile-to-yul ast)]
         (println "Compiled successfully!")
-        (println "Generated Yul code:" yul)))))
+        (println "Generated Yul code:")
+        (clojure.pprint/pprint yul))))) ;; TODO: don't used pprint for Yul.
 
       ;:else
       ;(println "Result:" (EVAL ast repl-env))))))
