@@ -22,7 +22,7 @@
   ;; TODO: with this custom-slot feature it's needed to
   ;;        add a compile-time storage-collision checks.
     [(def totalSupply :uint256 {:slot 0x05}) ; Note: MUST be in hex format.
-     (def balances :mapping address => :uint256)]
+     (def balances :address => :uint256)]
    
    :internal
     [(def owner :address)]})
@@ -34,7 +34,7 @@
 (functions
  ;; Still can be accessed via JUMP instead of CALL.
   {:external
-    [(defn transfer [(to :address) (amount :uint256)] :bool
+    [(defn transfer [(to :address) (amount :uint256)] (:bool)
        (require (> balances[msg/sender] amount))
        (set! balances[msg/sender] (- balances[msg/sender] amount))
        (set! balances[to] (+ balances[to] amount))
