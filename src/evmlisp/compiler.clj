@@ -4,13 +4,6 @@
             [evmlisp.errors :as errs]
             [evmlisp.core :as core]))
 
-(def yul-builder
-  {:contract-name nil
-   :constructor-code []
-   :runtime-code
-   {:storage {:external [] :internal []}
-    :functions {:external [] :internal []}}})
-
 (defn defn-to-signature
   "Converts evmlisps's definitions to function signatures."
   [fn-name args]
@@ -19,6 +12,15 @@
           (string/join ","
                        (map name
                             (map (fn [v] (get (vec v) 1)) args)))))
+
+;; TODO: it doesn't account for mappings.
+(defn def-to-signature
+  "Converts evmlisps's external storage definitions to function signatures."
+  [def-name types]
+  (format "%s(%s)" def-name
+          (string/join ","
+                       (map name
+                            (map (fn [v] (get (vec v) 1)) types)))))
 
 (defn args-to-symbols
   "
@@ -30,42 +32,6 @@
          {:name (get (vec v) 0)
           :type (name (get (vec v) 1))})
        args))
-
-(defn s-exp-to-yul
-  "Produces Yul operation on given s-expressions."
-  [body]
-  body)
-
-(defn inner-to-symbols
-  "Convert language defintions to common symbol-table data."
-  [definition external?]
-  (if (nil? definition) (vec nil)
-      (let [operation (first definition)
-            def-name (first (rest definition))
-            types (rest (rest definition))]
-        
-        (cond
-          ;; Parse function definitions.
-          (= operation 'defn)          
-          (let [fn-body (nth types (- (count types) 1))
-                args (first types)
-                return (nth types 1)
-                signature (defn-to-signature def-name args)]
-            
-            {
-             :name def-name             
-             :signature signature             
-             :args (args-to-symbols args)
-             :body (s-exp-to-yul fn-body)
-             :returns (map (fn [v] {:type (name v)}) return)})
-
-          ;; Storage variable definition
-          (= operation 'def)
-          {
-           :name def-name
-           :signature (if external? "todo:external-sig" nil)
-           }
-          ))))
 
 ; Stages:
 ; 1. Create main contract Object (from namespace):
@@ -102,27 +68,6 @@
 ;  "Used to compile function's body."
 ;  [form ctx])
 
-;; TODO: do this thing better.
-;;~~~~ MERGE THESE INTO 1 FUNCTION!
-(defn storage-to-symbols [definitions]
-  {:storage
-   {
-    :external (map (fn [d] (inner-to-symbols d true))
-                   (:external definitions))
-    
-    :internal (map (fn [d] (inner-to-symbols d false))
-                   (:internal definitions))}})
-
-(defn fns-to-symbols [definitions]
-  {:functions
-   {
-    :external (map (fn [d] (inner-to-symbols d true))
-                   (:external definitions))
-    
-    :internal (map (fn [d] (inner-to-symbols d false))
-                   (:internal definitions))}})
-
-
 (defn process-ex-in
   [objects]
   (let [x (first (rest objects))
@@ -135,13 +80,64 @@
 (defn process-constructor [constructor] constructor)
 
 (defn process-functions [functions]
-    (let [fns (process-ex-in functions)]
-      (fns-to-symbols fns)))
+  (let [definitions (process-ex-in functions)]
+      (let [initial-state {:functions
+                       {:external [] :internal []}}]
+    (reduce (fn [state [visibility defs]]
+              (reduce (fn [state def-form]
+                        (let [[_ name args ret body] def-form
+                              sig (defn-to-signature name args)
+                              var-def {:name name
+                                       :signature sig
+                                       :args (args-to-symbols args)
+                                       :body body
+                                       :return ret}]
+                          (-> state
+                              (update-in [:functions visibility] conj var-def))))
+                      state
+                      defs))
+            initial-state
+            [[:external (:external definitions)]
+             [:internal (:internal definitions)]]))))
 
+;; FIX: this function:
+;; - doesn't detect mappings.
+;; - can't increment storage counter for data that occupies more than 32 bytes.
+;; - looks ugly...
 (defn process-storage [storage]
-  (let [sto (process-ex-in storage)
-        slot 0x00] ; TODO; properly assign storage slots.
-    (storage-to-symbols sto)))
+  (let [definitions (process-ex-in storage)
+        initial-state {:slot-counter 0x00
+                       :storage {:external [] :internal []}
+                       :occupied-slots []}]
+    (reduce (fn [state [visibility defs]]
+                                        ; Iterate over all :external storage vars.
+                                        ; And then over all :internal storage vars.
+              (reduce (fn [state def-form]
+                        (let [[_ name types & opts] def-form
+                              ;; Use custom slot if specified, otherwise allocate new.
+                              custom-slot (when (map? (last opts)) (:slot (last opts)))
+                              slot (or custom-slot (:slot-counter state))
+                              ;; Increment counter if using auto-allocation.
+                              new-counter (if custom-slot 
+                                            (:slot-counter state)
+                                            (inc slot))
+                              var-def {:name name
+                                       :type (str types)
+                                       :slot slot
+                                       :visibility visibility}]
+                          ;; Check for storage collision.
+                          (if (some #{slot} (:occupied-slots state))
+                            (errs/err-slot-collision slot)
+                            (-> state
+                                (update-in [:storage visibility] conj var-def)
+                                (assoc :slot-counter new-counter)
+                                (update-in [:occupied-slots] conj slot)))
+                          ))
+                      state
+                      defs))
+            initial-state
+            [[:external (:external definitions)]
+             [:internal (:internal definitions)]])))
 
 ;~ Symbol-table draft
 ;{
