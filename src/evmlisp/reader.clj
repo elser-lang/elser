@@ -93,6 +93,6 @@
       (= tkn "{") (apply hash-map (read-list rdr "{" "}"))
       :else (read-atom rdr))))
 
-(defn read-str [in]
+(defn read-str [in]  
   (read-form
    (tokenize in)))

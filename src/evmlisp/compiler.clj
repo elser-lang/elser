@@ -1,37 +1,128 @@
 (ns evmlisp.compiler
   (:gen-class)
-  (:require [clojure.string :as string]
-            [evmlisp.errors :as errs]
-            [evmlisp.core :as core]))
+  (:require [evmlisp.env :as env]
+            [clojure.string :as string]))
 
-(defn defn-to-signature
-  "Converts evmlisps's definitions to function signatures."
-  [fn-name args]
-  (format "%s(%s)" fn-name
-          ;; Get all types of a function defintion.
-          (string/join ","
-                       (map name
-                            (map (fn [v] (get (vec v) 1)) args)))))
+(declare compile)
 
-;; TODO: it doesn't account for mappings.
-(defn def-to-signature
-  "Converts evmlisps's external storage definitions to function signatures."
-  [def-name types]
-  (format "%s(%s)" def-name
-          (string/join ","
-                       (map name
-                            (map (fn [v] (get (vec v) 1)) types)))))
+(defn compile-symbols
+  [symbols yulenv]
+  (cond
+    (symbol? symbols) (env/eget yulenv symbols)
+    
+    (map? symbols) (let [k (keys symbols)
+                     v (doall (map (fn [x] (compile x yulenv)) (vals symbols)))]
+                 (zipmap k v))
+    
+    (seq? symbols) (doall (map (fn [x] (compile x yulenv)) symbols))
+    
+    (vector? symbols) (vec (doall
+                        (map (fn [x] (compile x yulenv)) symbols)))
+    
+    :else symbols))
 
-(defn args-to-symbols
-  "
-  Produces {:name ... :type ...} map on
-  a given [(arg_0 :type) ... (arg_n :type)]
-  "
-  [args]
-  (map (fn [v]
-         {:name (get (vec v) 0)
-          :type (name (get (vec v) 1))})
-       args))
+(defn compile
+  [symbols yulenv]
+  (cond
+    (nil? symbols) symbols
+    
+    (not (seq? symbols)) (compile-symbols symbols yulenv)
+    
+    (empty? symbols) '()
+    
+    (seq? symbols) (let [f (first symbols)]
+                 (cond
+
+                   ;; 'def' - call the set method of the current environment
+                   ;; (second parameter of compile called env) using the
+                   ;; unevaluated first parameter (second list element)
+                   ;; as the symbol key and the evaluated
+                   ;; second parameter as the value.
+                   (= f 'def!)
+                   (let [k (second symbols)
+                         v (compile (nth symbols 2) yulenv)]
+                     (env/eset yulenv k v))                   
+
+                   ;; 'let' - create a new environment using the
+                   ;; current environment as the outer value and
+                   ;; then use the first parameter as a list of
+                   ;; new bindings in the "let*" environment.
+                   (= f 'let*)
+                   (let [let-env (env/env yulenv)]
+                     (doseq [[b e] (partition 2 (first (rest symbols)))]
+                       (env/eset let-env b (compile e let-env)))
+                     (compile (nth symbols 2) let-env))
+
+                   ;; 'do' - evaluate all the elements of the list
+                   ;; and return the final evaluated element.
+                   (= f 'do)
+                   (symbols (compile-symbols (rest symbols) yulenv))
+
+                   ;; 'if' - good old if statement.
+                   (= f 'if)
+                   (let [exprs (rest (rest symbols))]
+                     (if (compile (second symbols) yulenv)
+                       (compile (first exprs) yulenv)
+
+                       (if (= (count exprs) 2)
+                         (compile (second exprs) yulenv)
+                         nil)))
+
+                   ;; 'fn' - return a new function closure.
+                   (= f 'fn*)
+                   (let [p (second symbols)
+                         e (nth symbols 2)]
+                     (fn [& args]
+                       (compile e (env/env yulenv p (or args '() )))))
+                   
+                   :else
+                   (let [l' (compile-symbols symbols yulenv)
+                         f (first l')
+                         args (rest l')]
+                     (apply f args))))))
+
+(defn get-dispatcher [definitions]
+  (reduce (fn [dispatcher definition]
+            (str dispatcher
+                 (str
+                  "      case " (:selector definition) " { /*" (:signature definition) "*/\n"
+                  "            return(0,0) // TODO: implement body\n"
+                  "      }\n")))
+          ""
+          definitions))
+
+
+(defn generate-yul [symbols yulenv]
+  (let [contract-name (:ns symbols)
+        constructor (:constructor symbols)
+        storage (:storage symbols)
+        functions (:functions symbols)]
+    (println "name" contract-name)
+    (println "storage" storage)
+    ;; TODO: add constructor code (if there's one).
+    (str "object \"" contract-name "\" {\n"
+         "  code {\n"
+         "    datacopy(0, dataoffset(\"runtime\"), datasize(\"runtime\"))\n"
+         "    return(0, datasize(\"runtime\"))\n"
+         "  }\n"
+         "  object \"runtime\" {\n"
+         "    code {\n"
+         ;;~~~~~~~  Dispatcher
+         "      // Dispatcher\n"
+         "      switch shr(224, calldataload(0))\n"
+         (get-dispatcher (:external functions))         
+         (get-dispatcher (:external storage))
+         "      default { revert(0,0) }\n\n"
+         ;;~~~~~~~ Runtime code
+         "" ;; TODO: add runtime code generation.
+         "\n    }\n"
+         "  }\n"
+         "}")))
+
+
+(defn symtable-to-yul
+  [symbols yulenv]
+  (generate-yul symbols yulenv))
 
 ; Stages:
 ; 1. Create main contract Object (from namespace):
@@ -63,187 +154,3 @@
 ;         }
 ;      }
 ;    }
-
-;(defn compile-form
-;  "Used to compile function's body."
-;  [form ctx])
-
-(defn process-ex-in
-  [objects]
-  (let [x (first (rest objects))
-        external (:external x)
-        internal (:internal x)]
-    {:external external
-     :internal internal}))
-
-;; TODO: implement
-(defn process-constructor [constructor] constructor)
-
-(defn process-functions [functions]
-  (let [definitions (process-ex-in functions)]
-      (let [initial-state {:functions
-                       {:external [] :internal []}}]
-    (reduce (fn [state [visibility defs]]
-              (reduce (fn [state def-form]
-                        (let [[_ name args ret body] def-form
-                              sig (defn-to-signature name args)
-                              var-def {:name name
-                                       :signature sig
-                                       :args (args-to-symbols args)
-                                       :body body
-                                       :return ret}]
-                          (-> state
-                              (update-in [:functions visibility] conj var-def))))
-                      state
-                      defs))
-            initial-state
-            [[:external (:external definitions)]
-             [:internal (:internal definitions)]]))))
-
-;; FIX: this function:
-;; - doesn't detect mappings.
-;; - can't increment storage counter for data that occupies more than 32 bytes.
-;; - looks ugly...
-(defn process-storage [storage]
-  (let [definitions (process-ex-in storage)
-        initial-state {:slot-counter 0x00
-                       :storage {:external [] :internal []}
-                       :occupied-slots []}]
-    (reduce (fn [state [visibility defs]]
-                                        ; Iterate over all :external storage vars.
-                                        ; And then over all :internal storage vars.
-              (reduce (fn [state def-form]
-                        (let [[_ name types & opts] def-form
-                              ;; Use custom slot if specified, otherwise allocate new.
-                              custom-slot (when (map? (last opts)) (:slot (last opts)))
-                              slot (or custom-slot (:slot-counter state))
-                              ;; Increment counter if using auto-allocation.
-                              new-counter (if custom-slot 
-                                            (:slot-counter state)
-                                            (inc slot))
-                              var-def {:name name
-                                       :type (str types)
-                                       :slot slot
-                                       :visibility visibility}]
-                          ;; Check for storage collision.
-                          (if (some #{slot} (:occupied-slots state))
-                            (errs/err-slot-collision slot)
-                            (-> state
-                                (update-in [:storage visibility] conj var-def)
-                                (assoc :slot-counter new-counter)
-                                (update-in [:occupied-slots] conj slot)))
-                          ))
-                      state
-                      defs))
-            initial-state
-            [[:external (:external definitions)]
-             [:internal (:internal definitions)]])))
-
-;~ Symbol-table draft
-;{
-; :ns "math",  => Defines namespaces (aka contract-name)
-;                    
-;~ For storage it's needed to define its layout and access functions.
-;~ Plus for :external values it's needed to generate getters for them,
-;~ so they will be part of the ABI => add to function dispatcher.
-;                        
-; :storage
-;   {:external [{:slot nil :name nil, :type nil :size 0}],
-;    :internal [
-;     {:slot [CUSTOM_SLOT || COUNTER] ;; for storage pos we need to have counter.
-;      :name "start"
-;      :signature "start()",
-;      :args [{:name "to", :type :address}, 
-;            {:name "amount", :type :uint256}],
-;      :returns :bool,
-;      :size 32
-;     ]},       
-;               
-;~ ∀ e ∈ :external => e ∈ dispatcher(e.selector, e.signature) => e ∈ ABI
-;~ ∀ i ∈ :internal => i ∉ dispatcher & i ∉ ABI
-;~ Thus for external functions we need to know their selector and signature
-;~ and for internal we only need to know their signature.
-;~ For signatures, we need to maintain a vector with argument types and return types.
-;
-; TODO: add 'receive()/fallback()' as standalone function.
-; :functions {
-;   :external [
-;    {:name "transfer",
-;     :selector "0xa9059cbb",
-;     :signature "transfer(address,uint256)",
-;     :body '(+ x x) ; (s-expressions)
-;     :args [{:name "to", :type :address}, 
-;            {:name "amount", :type :uint256}],
-;     :returns :bool,
-;     :mutability :nonpayable}
-;  ]
-;   :internal [
-;    {:name "",
-;     :selector "",
-;     :signature "",
-;     :args [],
-;     :returns nil,
-;     :mutability :payable}
-;   ] ;; No internal functions here.
-;}      
-(defn collect-symbols
-  "Produces a symbol table on a given AST."
-  [ast]
-  (reduce
-   (fn [symbols form]
-     (cond
-       ;; Parses all the outer-layer constructs.
-       
-       ;; Namespace defintion.
-       (and (list? form) (= 'ns (first form)))
-       (assoc symbols :ns (second form))
-
-       (and (list? form) (= 'constructor (first form)))
-       (merge symbols (process-constructor form))
-       
-       (and (list? form) (= 'storage (first form)))
-       (merge symbols (process-storage form))
-       
-       (and (list? form) (= 'functions (first form)))
-       (merge symbols (process-functions form))
-       
-       :else
-       symbols))
-   {}
-   (rest ast)))
-
-;; State update helpers
-(defn update-section [builder section f & args]
-  (update-in builder [section] #(apply f % args)))
-
-(defn add-runtime-code [builder code]
-  (update-section builder :runtime-code conj code))
-
-(defn add-function [builder visibility fn-def]
-  (update-section builder [:functions visibility] conj fn-def))
-
-(defn generate-yul [builder]
-  (let [{:keys [contract-name runtime-code functions]} builder]
-    ;; TODO: add constructor code (if there's one).
-    (str "object \"" contract-name "\" {\n"
-         "  code {\n"
-         "    datacopy(0, dataoffset(\"runtime\"), datasize(\"runtime\"))\n"
-         "    return(0, datasize(\"runtime\"))\n"
-         "  }\n"
-         "  object \"runtime\" {\n"
-         "    code {\n"
-         ;;~~~~~~~  Dispatcher
-         "      let selector := shr(224, calldataload(0))\n"
-         "      switch selector\n"
-         ;; TODO: add (dispatch-cases (:external functions))
-         "      default { revert(0,0) }\n\n"
-         ;;~~~~~~~ Runtime code
-         (string/join "\n" runtime-code)
-         "\n    }\n"
-         "  }\n"
-         "}")))
-
-
-;; TODO: translate Lisp to Yul language, checking for proper syntax.
-(defn compile-to-yul [ast]
-  (collect-symbols ast))

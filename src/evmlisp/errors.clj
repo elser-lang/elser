@@ -17,6 +17,9 @@
 (defn err-bind-not-found [sym]
   (throw (Exception. (format "evmlisp: bind not found %s" sym))))
 
+(defn err-nil-symbol [sym]
+  (throw (Exception. (format "evmlisp: nil symbol %s" sym))))
+
 (defn err-slot-collision
   [s]
   (throw (Exception. (format "evmlisp: slot collision in slot %s" s))))
