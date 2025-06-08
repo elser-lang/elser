@@ -5,6 +5,7 @@
             [evmlisp.printer :as printer]
             [evmlisp.errors :as errs]
             [evmlisp.core :as core]
+            [evmlisp.symtable :as symtable]
             [evmlisp.compiler :as compiler]
             [evmlisp.cli :as cli]
             [clojure.repl :as clj-repl]
@@ -104,13 +105,17 @@
      (EVAL
       (READ inp) repl-env))
 
+;; TODO: remove this Lisp init.
 (doseq [[k v] core/core-ns] (env/eset repl-env k v))
 (env/eset repl-env 'eval (fn [ast] (EVAL ast repl-env)))
+
+(def yul-env (env/env))
+(doseq [[k v] core/yul-ns] (env/eset yul-env k v))
 
 ;; Functions defined inside the language itself.
 ;;(rep "(def! not (fn* (x) (if x false true)))")
 ;; TODO: move 'load-file' into `EVAL` step?
-(rep "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))")
+; (rep "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))")
 
 (defn repl-loop []
   (prompt)
@@ -127,17 +132,19 @@
         ast (READ (str "(do " code "\nnil)"))]
     (cond
       (:ast options) 
-      (do (println "~~~~~~~~~~~~~~ AST ~~~~~~~~~~~~~~")
+      (do (println "Generated AST:")
           (clojure.pprint/pprint ast))
 
-      (:yul options)
-      (let [yul (compiler/compile-to-yul ast)]
-        (println "Compiled successfully!")
-        (println "Generated Yul code:")
-        (clojure.pprint/pprint yul))))) ;; TODO: don't used pprint for Yul.
+      (:ir options)
+      (let [symbols (symtable/collect-symbols ast)]
+        (println "Generated symbol-table:")
+        (clojure.pprint/pprint symbols))
 
-      ;:else
-      ;(println "Result:" (EVAL ast repl-env))))))
+      (:yul options)
+      (let [symbols (symtable/collect-symbols ast)
+            yul (compiler/symtable-to-yul symbols yul-env)]
+        (println "Generated Yul:")
+        (println yul)))))
   
 (defn -main [& args]
   (let [{:keys [file options exit-message ok?]} (cli/validate-args args)]
