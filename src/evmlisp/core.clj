@@ -22,3 +22,26 @@
    ['< <]
    ['>= >=]
    ['<= <=]])
+
+(def yul-ns
+  [
+   ;; Arithemtic (in progress)
+   ['+ "add(%s, %s)"]
+   ['* "mul(%s, %s)"]
+   ['- "sub(%s, %s)"]
+   ['/ "div(%s, %s)"]
+   ;['count ] todo: return lenght of data.
+   ['mod "mod(%s, %s)"]
+   ['** "exp(%s, %s)"]
+
+   ;; Comparison (in progress)
+   ['= "eq(%s, %s)"]
+   ['> "gt(%s, %s)"]
+   ['< "lt(%s, %s)"]
+   ['<= "iszero(gt(%s, %s))"]
+
+   ;; Logical operators (in progress)
+   ['& "and(%s, %s)"]
+   ['| "or(%s, %s)"]
+   ['~ "not(%s)"]
+   ['& "and(%s, %s)"]])
