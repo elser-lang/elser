@@ -20,6 +20,16 @@
 (defn err-nil-symbol [sym]
   (throw (Exception. (format "evmlisp: nil symbol %s" sym))))
 
+(defn err-unsupported-function-def [got want]
+  (throw (Exception.
+          (format "evmlisp: unsupported function defition: got [%s] | want [%s]"
+                  got want))))
+
 (defn err-slot-collision
   [s]
   (throw (Exception. (format "evmlisp: slot collision in slot %s" s))))
+
+
+(defn err-gt1-return
+  []
+  (throw (Exception. "evmlisp: multi-return is unsupported.")))
