@@ -135,7 +135,7 @@
       (do (println "Generated AST:")
           (clojure.pprint/pprint ast))
 
-      (:ir options)
+      (:symtable options)
       (let [symbols (symtable/collect-symbols ast)]
         (println "Generated symbol-table:")
         (clojure.pprint/pprint symbols))

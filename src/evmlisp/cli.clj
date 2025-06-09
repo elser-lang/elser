@@ -7,7 +7,7 @@
   [["-c" "--compile" "Compile to EVM bytecode."]
    ["-a" "--ast" "Show the AST."]
    ["-y" "--yul" "Show the compiled Yul code."]
-   ["-i" "--ir" "Show IR between evmlisp and Yul."]
+   ["-s" "--symtable" "Show symbol-table generated from evmlisp."]
    ["-o" "--output FILE" "Output file for compilation results"
     :default "out.yul"]
    ["-h" "--help" "Show help message."]])
