@@ -1,12 +1,18 @@
 (ns evmlisp.symtable
   (:gen-class)
+  (:import [org.web3j.crypto Hash]
+           [org.web3j.utils Numeric])
   (:require [clojure.string :as string]
             [evmlisp.errors :as errs]
             [evmlisp.core :as core]))
 
-;; TODO: implement.
-(defn fn-selector [sig]
-  "0x00000000")
+(defn obtain-selector
+  "Converts a Solidity function signature to a 4-byte selector"
+  [signature]
+  (let [hash-bytes (Hash/sha3 (.getBytes signature))
+        selector-bytes (byte-array 4)]
+    (System/arraycopy hash-bytes 0 selector-bytes 0 4)
+    (Numeric/toHexString selector-bytes)))
 
 (defn defn-to-signature
   "Converts evmlisps's definitions to function signatures."
@@ -20,11 +26,15 @@
 ;; TODO: it doesn't account for mappings.
 (defn def-to-signature
   "Converts evmlisps's external storage definitions to function signatures."
-  [def-name types]
-  (format "%s(%s)" def-name
-          (string/join ","
-                       (map name
-                            (map (fn [v] (get (vec v) 1)) types)))))
+  [def-name sto-types]
+    (if (some #{'=>} sto-types) ; if type is a mapping.
+      (let [new-types (remove #{'=>} sto-types)
+            len (count new-types)]
+        (recur def-name
+               (subvec (vec new-types) 0 (- len 1))))
+        (format "%s(%s)" def-name
+                (string/join ","
+                             (map name sto-types)))))
 
 (defn args-to-symbols
   "
@@ -32,10 +42,24 @@
   a given [(arg_0 :type) ... (arg_n :type)]
   "
   [args]
-  (map (fn [v]
-         {:name (get (vec v) 0)
-          :type (name (get (vec v) 1))})
-       args))
+  (map-indexed (fn [i v]
+         (let [named? (= (mod (count v) 2) 0)
+               arg-name (if named?
+                          (get (vec v) 0)
+                          (str "arg_" i))
+               arg-type (if named?
+                          (get (vec v) 1)
+                          (get v 0))]
+           {:name arg-name
+            :type arg-type}))
+         args))
+
+(def supported-function-types ['defn 'defn-read])
+(defn function-type
+  [definition]
+  (if (some #{definition} supported-function-types)
+    definition
+    (errs/err-unsupported-function-def definition supported-function-types)))
 
 (defn process-ex-in
   [objects]
@@ -54,14 +78,15 @@
                        {:external [] :internal []}}]
     (reduce (fn [state [visibility defs]]
               (reduce (fn [state def-form]
-                        (let [[_ name args ret body] def-form
-                              sig (defn-to-signature name args)
-                              var-def {:name name
-                                       :selector (fn-selector sig)
+                        (let [[fn-type fn-name args ret body] def-form
+                              sig (defn-to-signature fn-name args)
+                              var-def {:name fn-name
+                                       :selector (obtain-selector sig)
                                        :signature sig
                                        :args (args-to-symbols args)
+                                       :fn-type (function-type fn-type)
                                        :body body
-                                       :return ret}]
+                                       :return (map name (vec ret))}]
                           (-> state
                               (update-in [:functions visibility] conj var-def))))
                       state
@@ -71,7 +96,6 @@
              [:internal (:internal definitions)]]))))
 
 ;; FIX: this function:
-;; - doesn't detect mappings.
 ;; - can't increment storage counter for data that occupies more than 32 bytes.
 ;; - looks ugly...
 (defn process-storage [storage]
@@ -80,20 +104,23 @@
                        :storage {:external [] :internal []}
                        :occupied-slots []}]
     (reduce (fn [state [visibility defs]]
-                                        ; Iterate over all :external storage vars.
-                                        ; And then over all :internal storage vars.
               (reduce (fn [state def-form]
                         (let [[_ def-name sto-types & opts] def-form
                               ;; Use custom slot if specified, otherwise allocate new.
                               custom-slot (when (map? (last opts)) (:slot (last opts)))
                               slot (or custom-slot (:slot-counter state))
+                              sig (def-to-signature def-name sto-types)
                               ;; Increment counter if using auto-allocation.
-                              new-counter (if custom-slot 
+                              new-counter (if custom-slot
                                             (:slot-counter state)
                                             (inc slot))
                               var-def {:name def-name
-                                       :type (map name sto-types)
-                                       :slot slot}]
+                                       :selector (obtain-selector sig)
+                                       :signature sig
+                                       :args (args-to-symbols (list sto-types))
+                                       :slot slot
+                                       :return (map name (subvec sto-types
+                                                       (- (count sto-types) 1)))}]
                           ;; Check for storage collision.
                           (if (some #{slot} (:occupied-slots state))
                             (errs/err-slot-collision slot)
