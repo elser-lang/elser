@@ -23,18 +23,15 @@
                        (map name
                             (map (fn [v] (get (vec v) 1)) args)))))
 
-;; TODO: it doesn't account for mappings.
+
 (defn def-to-signature
   "Converts evmlisps's external storage definitions to function signatures."
   [def-name sto-types]
-    (if (some #{'=>} sto-types) ; if type is a mapping.
-      (let [new-types (remove #{'=>} sto-types)
-            len (count new-types)]
-        (recur def-name
-               (subvec (vec new-types) 0 (- len 1))))
-        (format "%s(%s)" def-name
-                (string/join ","
-                             (map name sto-types)))))
+  (format "%s(%s)" def-name
+          (string/join ","
+                       (map
+                        (fn [t]
+                          (name (first t))) sto-types))))
 
 (defn args-to-symbols
   "
@@ -44,12 +41,8 @@
   [args]
   (map-indexed (fn [i v]
          (let [named? (= (mod (count v) 2) 0)
-               arg-name (if named?
-                          (get (vec v) 0)
-                          (str "arg_" i))
-               arg-type (if named?
-                          (get (vec v) 1)
-                          (get v 0))]
+               arg-name (if named? (nth v 0) (str "arg_" i))
+               arg-type (name (last v))]
            {:name arg-name
             :type arg-type}))
          args))
@@ -70,7 +63,9 @@
      :internal internal}))
 
 ;; TODO: implement
-(defn process-constructor [constructor] constructor)
+(defn process-constructor [constructor] {:constructor ""})
+(defn process-constants [constants] {:constants ""})
+(defn process-events [events] {:events ""})
 
 (defn process-functions [functions]
   (let [definitions (process-ex-in functions)]
@@ -109,6 +104,16 @@
                               ;; Use custom slot if specified, otherwise allocate new.
                               custom-slot (when (map? (last opts)) (:slot (last opts)))
                               slot (or custom-slot (:slot-counter state))
+                              ret (map name (subvec sto-types
+                                                       (- (count sto-types) 1)))
+                              mapping? (some #{'=>} sto-types)
+                              sto-types (if mapping?
+                                           (reduce
+                                            (fn [v t] (conj v (list t)))
+                                            []
+                                            (drop-last
+                                             (remove #{'=>} sto-types)))
+                                           '[])
                               sig (def-to-signature def-name sto-types)
                               ;; Increment counter if using auto-allocation.
                               new-counter (if custom-slot
@@ -117,10 +122,11 @@
                               var-def {:name def-name
                                        :selector (obtain-selector sig)
                                        :signature sig
-                                       :args (args-to-symbols (list sto-types))
+                                       :args (args-to-symbols sto-types)
                                        :slot slot
-                                       :return (map name (subvec sto-types
-                                                       (- (count sto-types) 1)))}]
+                                       :return ret
+                                       :mapping? (if mapping? true false)}]
+                          (println "sto-types" sto-types)
                           ;; Check for storage collision.
                           (if (some #{slot} (:occupied-slots state))
                             (errs/err-slot-collision slot)
@@ -135,28 +141,55 @@
             [[:external (:external definitions)]
              [:internal (:internal definitions)]])))
 
+(def valid-nested-type?
+  {:list (fn [c]
+           (if (not (list? (first (rest c))))
+             (errs/err-invalid-nested-type (first c) (rest c) '())))
+
+   :map (fn [c]
+          (if (not (map? (first (rest c))))
+            (errs/err-invalid-nested-type (first c) (rest c) '{})))
+
+   :string (fn [c]
+          (if (not (string? (first (rest c))))
+            (errs/err-invalid-nested-type (first c) (rest c) 'string)))
+   })
+
 (defn collect-symbols
   "Produces a symbol table on a given AST."
   [ast]
   (reduce
    (fn [symbols form]
      (cond
-       ;; Parses all the outer-layer constructs.
+       (not (list? form))
+       (errs/err-invalid-top-level-form form)
        
        ;; Namespace defintion.
-       (and (list? form) (= 'ns (first form)))
-       (assoc symbols :ns (second form))
+       (= 'ns (first form))
+       (do ((:string valid-nested-type?) form)
+           (assoc symbols :ns (second form)))
 
-       (and (list? form) (= 'constructor (first form)))
-       (merge symbols (process-constructor form))
+       (= 'constructor (first form))
+       (do ((:list valid-nested-type?) form)
+           (merge symbols (process-constructor form)))
+
+       (= 'events (first form))
+       (do ((:list valid-nested-type?) form)
+           (merge symbols (process-events form)))
+
+       (= 'constants (first form))
+       (do ((:map valid-nested-type?) form)
+           (merge symbols (process-constants form)))
        
-       (and (list? form) (= 'storage (first form)))
-       (merge symbols (process-storage form))
+       (= 'storage (first form))
+       (do ((:map valid-nested-type?) form)
+           (merge symbols (process-storage form)))
        
-       (and (list? form) (= 'functions (first form)))
-       (merge symbols (process-functions form))
+       (= 'functions (first form))
+       (do ((:map valid-nested-type?) form)       
+           (merge symbols (process-functions form)))
        
        :else
        symbols))
    {}
-   (rest ast)))
+   ast))
