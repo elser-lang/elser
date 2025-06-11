@@ -7,12 +7,7 @@
             [clojure.string :as string]
             [clojure.pprint :refer [pprint]]))
 
-(defn init-memory-env
-  [yul-env]
-  ;; Init memory env, using yul-env as outer env.
-  ;; Initially memory env is empty, and will
-  ;; be filled with local variables (if any).
-  (env/env yul-env))
+(def return-var "ret_val") 
 
 ;; fix: this function creates calldata env even for internal function calls
 ;;      whose arguments aren't stored in calldata.
@@ -29,11 +24,7 @@
             ] (env/eset calldata-env k v))
     calldata-env))
 
-(defn init-local-env
-  [yul-env definition]
-  (init-calldata-env
-   (init-memory-env yul-env)
-   definition))
+(defn init-local-env [yul-env definition] (init-calldata-env yul-env definition))
 
 (defn init-storage-env
   "
@@ -57,33 +48,35 @@
 (declare compile)
 
 (defn compile-symbols
-  [symbols yul-env sto-env]
+  [symbols yul-env sto-env returns?]
   (println "symbols" symbols)
   (cond
     (symbol? symbols) (env/eget yul-env symbols)
     
     (map? symbols) (let [k (keys symbols)
-                         v (doall (map (fn [x] (compile x yul-env sto-env))
+                         v (doall (map (fn [x] (compile x yul-env sto-env returns?))
                                        (vals symbols)))]
                      (zipmap k v))
     
-    (seq? symbols) (doall (map (fn [x] (compile x yul-env sto-env))
+    (seq? symbols) (doall (map (fn [x] (compile x yul-env sto-env returns?))
                                symbols))
     
     (vector? symbols) (vec (doall
-                            (map (fn [x] (compile x yul-env sto-env))
+                            (map (fn [x] (compile x yul-env sto-env returns?))
                                  symbols)))
     
     :else symbols))
 
+;; TODO: finish 'return' statement!!!!
 (defn compile
-  [symbols yul-env sto-env]
+  [symbols yul-env sto-env returns?]
   (println "compile(symbols)" symbols)
+  (println "returns?" returns?)  
   (cond
     ;; TODO: what to do wtih this case?
     (nil? symbols) symbols
     
-    (not (seq? symbols)) (compile-symbols symbols yul-env sto-env)
+    (not (seq? symbols)) (compile-symbols symbols yul-env sto-env returns?)
     
     (empty? symbols) '()
     
@@ -95,17 +88,45 @@
                        ;; then use the first parameter as a list of
                        ;; new bindings in the "let*" environment.
                        (= f 'let)
-                       (let [let-env (env/env yul-env)]
-                         (doseq [[b e] (partition 2 (first (rest symbols)))]
-                           (env/eset let-env b (compile e let-env)))
-                         (compile (nth symbols 2) let-env))
+                       (let [let-env (env/env yul-env)
+                             local-defs (partition 2 (first (rest symbols)))
+                             yul-lets (string/join
+                                       "\n" (reduce
+                                             (fn [full l]
+                                               (conj full
+                                                     (format
+                                                      "let %s := %s"
+                                                      (first l)
+                                                      (compile
+                                                       (nth l 1)
+                                                       let-env
+                                                       sto-env
+                                                       returns?))))
+                                             [] local-defs))]
+                         (doseq [[b e] local-defs]
+                           (env/eset let-env b (compile e let-env sto-env returns?)))
+                         
+                         (str yul-lets "\n"
+                              (compile (nth symbols 2) let-env sto-env returns?)))
 
                        ;; 'do' - evaluate all the elements of the list
                        ;; and return the final evaluated element.
                        (= f 'do)
-                       (string/join "\n"
-                                    (mapv (fn [sym] (compile sym yul-env sto-env))
-                                          (rest symbols)))
+                       (let [exprs (mapv
+                                    (fn [sym] (compile
+                                              sym
+                                              yul-env
+                                              sto-env
+                                              returns?))
+                                    (rest symbols))
+                             l (- (count exprs) 1)
+                             last-expr (get exprs l)]
+                         (string/join "\n"
+                                      (if returns?
+                                        (assoc exprs l
+                                               (format "%s := %s"
+                                                       return-var last-expr))
+                                        exprs)))
                        
                        ;; 'if' - good old if statement.
                        (= f 'if)
@@ -131,23 +152,30 @@
                        (let [op (second symbols)
                              sto-var (nth symbols 2)
                              var-slot (:slot (env/eget sto-env sto-var))]
-                         (if (= op 'write!)
+                         (cond
+                           (= op 'write!)
                            (apply (env/eget sto-env op)
                                   [(:slot (env/eget sto-env sto-var))
                                    (compile-symbols
                                     (last symbols)
-                                    yul-env sto-env)])
+                                    yul-env sto-env
+                                    returns?)])
 
-                           (apply (env/eget sto-env op) [sto-var])))
+                           (= op 'read!)
+                           (apply (env/eget sto-env op) [sto-var])
+
+                           :else
+                           (errs/err-bind-not-found op)))
                          
                        :else
                        (do (println "else case")
-                           (let [l' (compile-symbols symbols yul-env sto-env)
+                           (let [l' (compile-symbols symbols yul-env sto-env returns?)
                                  f (first l')
                                  args (rest l')]
+                             (println "else:l" l')
+                             (println "else:f" f)
                              (apply f args)))))))
 
-;; 0x54f363a300000000000000000000000000000000000000000000000000000000000000050000000000000000000000000000000000000000000000000000000000000005
 (declare evmlisp-args->yul-args)
 
 (defn compile-calldataload-for-args [definition tabs]
@@ -181,13 +209,19 @@
 
 ;; TODO: handle dynamics data types.
 (defn compile-storage-var-body [definition yul-env]
-    (format "          ret_val := sload(%s)\n" (:slot definition)))
+    (format "          %s := sload(%s)\n"
+            return-var (:slot definition)))
 
 (defn compile-function-body
   [definition yul-env sto-env]
+  (println "compiled body:" (compile (:body definition)
+           yul-env
+           sto-env
+           (not (empty? (:return definition)))))
   (compile (:body definition)
            yul-env
-           sto-env))
+           sto-env
+           (not (empty? (:return definition)))))
 
 (defn evmlisp-args->yul-args
   [args]
@@ -213,7 +247,7 @@
       errs/err-gt1-return
 
       (= return-count 1)
-      " -> ret_val "
+      (format " -> %s " return-var)
 
       :else
       " ")))
