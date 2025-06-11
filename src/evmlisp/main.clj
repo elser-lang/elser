@@ -129,7 +129,7 @@
 
 (defn process-file [file options]
   (let [code (slurp file)
-        ast (READ (str "(do " code "\nnil)"))]
+        ast (READ (str "(" code ")"))]
     (cond
       (:ast options) 
       (do (println "Generated AST:")
@@ -142,7 +142,7 @@
 
       (:yul options)
       (let [symbols (symtable/collect-symbols ast)
-            yul (compiler/symtable-to-yul symbols yul-env)]
+            yul (compiler/symtable-to-yul symbols yul-env core/sto-ns)]
         (println "Generated Yul:")
         (println yul)))))
   
