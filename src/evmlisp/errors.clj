@@ -33,3 +33,12 @@
 (defn err-gt1-return
   []
   (throw (Exception. "evmlisp: multi-return is unsupported.")))
+
+(defn err-invalid-top-level-form [s]
+  (throw (Exception. (format "evmlisp: top-level form must be a list (): %s" s))))
+
+(defn err-invalid-nested-type [in-form have want]
+  (throw (Exception.
+          (format "evmlisp: invalid nested-type in form (%s): have %s | want %s"
+                  in-form have want))))
+
