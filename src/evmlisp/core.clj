@@ -58,11 +58,8 @@
           (format
            "switch %s\n case 1 { %s }\n default { %s }"
            pred true-body false-body))]
-
-   ['loop (fn [binds cond body post-iter]
-            (format
-             "for { %s } %s { %s }\n { %s }"
-             binds cond post-iter body))]   
+   
+   ['set! (fn [bind expr] (format "%s := %s" bind expr))]
    ])
 
 (def sto-ns

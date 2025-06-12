@@ -85,6 +85,7 @@
 ;; TODO: finish 'return' statement!!!!
 (defn compile
   [symbols yul-env sto-env returns?]
+  (println "symbols" symbols)
   (cond
     ;; TODO: what to do wtih this case?
     (nil? symbols) symbols
@@ -116,6 +117,7 @@
                                                        sto-env
                                                        returns?))))
                                              [] local-defs))]
+                         (println "let ldefs" local-defs)
                          (doseq [[b _] local-defs]
                            (env/eset let-env b b))                         
                          (str yul-lets "\n"
@@ -133,40 +135,28 @@
                                     (rest symbols))
                              l (- (count exprs) 1)
                              last-expr (get exprs l)]
-                         (string/join "\n"
-                                      (if returns?
-                                        (assoc exprs l
-                                               (format "%s := %s"
-                                                       return-var last-expr))
-                                        exprs)))
+                         (string/join "\n" exprs))
 
                        ;; 'loop' in Yul (loop [binds] (cond) (post-iter) (body))
                        ;; in evmlisp (loop [binds] (cond) (body) (post-iter)).
                        (= f 'loop)
                        (let [loop-env (env/env yul-env)
-                             local-defs (partition 2 (first (rest symbols)))
-                             yul-lets (string/join
-                                       "\n" (reduce
-                                             (fn [full l]
-                                               (conj full
-                                                     (format
-                                                      "let %s := %s"
-                                                      (first l)
-                                                      (compile
-                                                       (nth l 1)
-                                                       loop-env
-                                                       sto-env
-                                                       returns?))))
-                                             [] local-defs))
-                             [_ _ cnd body post-iter] symbols]
-                         (doseq [[b _] local-defs]
+                             ;; Compile bindings like 'let'.
+                             yul-lets (compile
+                                       (list 'let (first (rest symbols)) nil)
+                                       loop-env sto-env
+                                       returns?)
+                             [_ _ cnd body post-iter] symbols
+                             slt (assoc (vec symbols) 0 'let)]
+                         (doseq [[b _] (partition 2 (first (rest symbols)))]
                            (env/eset loop-env b b))
                          
                          (format "for { %s } %s { %s }\n { %s }\n"
                                  yul-lets
                                  (compile cnd loop-env sto-env returns?)
                                  (compile post-iter loop-env sto-env returns?)
-                                 (compile body loop-env sto-env returns?)))                       
+                                 (compile body loop-env sto-env returns?)))
+                       
 
                        ;; 'sto' - a storage-access function.
                        ;; TODO: sstore(...) should use slot
@@ -232,10 +222,9 @@
 
 (defn compile-function-body
   [definition yul-env sto-env]
-  (compile (:body definition)
-           yul-env
-           sto-env
-           (not (empty? (:return definition)))))
+  (let [body (compile (:body definition) yul-env sto-env false)
+        lines (string/split body #"\n")]
+    body))
 
 (defn evmlisp-args->yul-args
   [args]
