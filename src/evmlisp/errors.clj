@@ -42,3 +42,9 @@
           (format "evmlisp: invalid nested-type in form (%s): have %s | want %s"
                   in-form have want))))
 
+(defn err-arity-exception [f have want]
+  (throw (Exception.
+          (format "evmlisp: invalid arity for function %s: have %s | want %s"
+                  f have want))))
+
+

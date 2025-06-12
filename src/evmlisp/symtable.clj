@@ -6,6 +6,19 @@
             [evmlisp.errors :as errs]
             [evmlisp.core :as core]))
 
+(defn sig->fn-call
+  [sig]
+  (let [[_ name args]
+        (re-matches #"([^()]+)\((.*)\)" sig)
+        types  (if (string/blank? args) [] (string/split args #","))
+        arity (count types)
+        blanks (repeat arity "%s")
+        fmt-sig (str name "(" (string/join "," blanks) ")")]
+    (fn [& args]
+      (if (not (= (count args) arity))
+        (errs/err-arity-exception name (count args) arity)
+        (apply format fmt-sig args)))))
+
 (defn obtain-selector
   "Converts a Solidity function signature to a 4-byte selector"
   [signature]
@@ -47,6 +60,16 @@
             :type arg-type}))
          args))
 
+(defn sto-var-type
+  "Returns one of storage variable types [atom | map | d-array | s-array]"
+  [sto-types]
+  (cond
+    (some #{'=>} sto-types)
+    {:map true}
+
+    :else
+    {:simple true}))
+
 (def supported-function-types ['defn 'defn-read])
 (defn function-type
   [definition]
@@ -78,6 +101,7 @@
                               var-def {:name fn-name
                                        :selector (obtain-selector sig)
                                        :signature sig
+                                       :fn-call (sig->fn-call sig)
                                        :args (args-to-symbols args)
                                        :fn-type (function-type fn-type)
                                        :body body
@@ -106,8 +130,8 @@
                               slot (or custom-slot (:slot-counter state))
                               ret (map name (subvec sto-types
                                                        (- (count sto-types) 1)))
-                              mapping? (some #{'=>} sto-types)
-                              sto-types (if mapping?
+                              t (sto-var-type sto-types)
+                              sto-types (if (:map t)
                                            (reduce
                                             (fn [v t] (conj v (list t)))
                                             []
@@ -125,7 +149,7 @@
                                        :args (args-to-symbols sto-types)
                                        :slot slot
                                        :return ret
-                                       :mapping? (if mapping? true false)}]
+                                       :var-type t}]
                           (println "sto-types" sto-types)
                           ;; Check for storage collision.
                           (if (some #{slot} (:occupied-slots state))
