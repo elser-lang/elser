@@ -37,6 +37,7 @@
    ;; Comparison (in progress)
    ['= (fn [x y] (format "eq(%s, %s)" x y))]
    ['> (fn [x y] (format "gt(%s, %s)" x y))]
+   ['>= (fn [x y] (format "iszero(lt(%s, %s))" x y))]
    ['< (fn [x y] (format "lt(%s, %s)" x y))]
    ['<= (fn [x y] (format "iszero(gt(%s, %s))" x y))]
    
@@ -44,7 +45,25 @@
    ['& "and(%s, %s)"]
    ['| "or(%s, %s)"]
    ['~ "not(%s)"]
-   ['& "and(%s, %s)"]])
+
+   ['caller (fn [] "caller()")]
+   ['origin (fn [] "origin()")]
+
+   ['assert (fn [c] (format "if iszero(%s) { revert(0,0) }\n" c))]
+   ;; fix: messages aren't displayed yet.
+   ['revert (fn [msg] "revert(0,0)\n")]
+
+   ;; Control-flow statements
+   ['if (fn [pred true-body false-body]
+          (format
+           "switch %s\n case 1 { %s }\n default { %s }"
+           pred true-body false-body))]
+
+   ['loop (fn [binds cond body post-iter]
+            (format
+             "for { %s } %s { %s }\n { %s }"
+             binds cond post-iter body))]   
+   ])
 
 (def sto-ns
   [
@@ -53,5 +72,6 @@
                      (if (nil? args)
                        ""
                        args)))]
+   
    ['write! (fn [slot val] (format "sstore(%s, %s)" slot val))]
    ])

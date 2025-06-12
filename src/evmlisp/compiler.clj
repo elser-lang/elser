@@ -7,7 +7,22 @@
             [clojure.string :as string]
             [clojure.pprint :refer [pprint]]))
 
-(def return-var "ret_val") 
+(def return-var "ret_val")
+
+(defn add-funcs-to-env
+  "
+  Add function name => function call to the main env.
+  "
+  [symbols yul-env]
+  (let [env-w-fns (env/env yul-env)
+        funcs (into (:external (:functions symbols))
+                    (:internal (:functions symbols)))
+        func-defs (reduce (fn [full x]
+                            (conj full
+                                  [(:name x) (:fn-call x)])) [] funcs)
+        ]
+    (doseq [[k v] func-defs] (env/eset env-w-fns k v))
+    env-w-fns))
 
 ;; fix: this function creates calldata env even for internal function calls
 ;;      whose arguments aren't stored in calldata.
@@ -24,7 +39,8 @@
             ] (env/eset calldata-env k v))
     calldata-env))
 
-(defn init-local-env [yul-env definition] (init-calldata-env yul-env definition))
+(defn init-local-env [yul-env definition]
+  (init-calldata-env yul-env definition))
 
 (defn init-storage-env
   "
@@ -58,20 +74,17 @@
                                        (vals symbols)))]
                      (zipmap k v))
     
-    (seq? symbols) (doall (map (fn [x] (compile x yul-env sto-env returns?))
-                               symbols))
+    (seq? symbols) (mapv (fn [x] (compile x yul-env sto-env returns?))
+                         symbols)
     
-    (vector? symbols) (vec (doall
-                            (map (fn [x] (compile x yul-env sto-env returns?))
-                                 symbols)))
+    (vector? symbols) (mapv (fn [x] (compile x yul-env sto-env returns?))
+                            symbols)
     
     :else symbols))
 
 ;; TODO: finish 'return' statement!!!!
 (defn compile
   [symbols yul-env sto-env returns?]
-  (println "compile(symbols)" symbols)
-  (println "returns?" returns?)  
   (cond
     ;; TODO: what to do wtih this case?
     (nil? symbols) symbols
@@ -103,9 +116,8 @@
                                                        sto-env
                                                        returns?))))
                                              [] local-defs))]
-                         (doseq [[b e] local-defs]
-                           (env/eset let-env b (compile e let-env sto-env returns?)))
-                         
+                         (doseq [[b _] local-defs]
+                           (env/eset let-env b b))                         
                          (str yul-lets "\n"
                               (compile (nth symbols 2) let-env sto-env returns?)))
 
@@ -127,23 +139,34 @@
                                                (format "%s := %s"
                                                        return-var last-expr))
                                         exprs)))
-                       
-                       ;; 'if' - good old if statement.
-                       (= f 'if)
-                       (let [exprs (rest (rest symbols))]
-                         (if (compile (second symbols) yul-env)
-                           (compile (first exprs) yul-env)
 
-                           (if (= (count exprs) 2)
-                             (compile (second exprs) yul-env)
-                             nil)))
-
-                       ;; 'fn' - return a new function closure.
-                       (= f 'fn)
-                       (let [p (second symbols)
-                             e (nth symbols 2)]
-                         (fn [& args]
-                           (compile e (env/env yul-env p (or args '() )))))
+                       ;; 'loop' in Yul (loop [binds] (cond) (post-iter) (body))
+                       ;; in evmlisp (loop [binds] (cond) (body) (post-iter)).
+                       (= f 'loop)
+                       (let [loop-env (env/env yul-env)
+                             local-defs (partition 2 (first (rest symbols)))
+                             yul-lets (string/join
+                                       "\n" (reduce
+                                             (fn [full l]
+                                               (conj full
+                                                     (format
+                                                      "let %s := %s"
+                                                      (first l)
+                                                      (compile
+                                                       (nth l 1)
+                                                       loop-env
+                                                       sto-env
+                                                       returns?))))
+                                             [] local-defs))
+                             [_ _ cnd body post-iter] symbols]
+                         (doseq [[b _] local-defs]
+                           (env/eset loop-env b b))
+                         
+                         (format "for { %s } %s { %s }\n { %s }\n"
+                                 yul-lets
+                                 (compile cnd loop-env sto-env returns?)
+                                 (compile post-iter loop-env sto-env returns?)
+                                 (compile body loop-env sto-env returns?)))                       
 
                        ;; 'sto' - a storage-access function.
                        ;; TODO: sstore(...) should use slot
@@ -156,50 +179,45 @@
                            (= op 'write!)
                            (apply (env/eget sto-env op)
                                   [(:slot (env/eget sto-env sto-var))
-                                   (compile-symbols
-                                    (last symbols)
-                                    yul-env sto-env
-                                    returns?)])
+                                   (compile (last symbols)
+                                            yul-env sto-env returns?)])
 
                            (= op 'read!)
                            (apply (env/eget sto-env op) [sto-var])
 
                            :else
                            (errs/err-bind-not-found op)))
-                         
+                       
                        :else
-                       (do (println "else case")
-                           (let [l' (compile-symbols symbols yul-env sto-env returns?)
-                                 f (first l')
-                                 args (rest l')]
-                             (println "else:l" l')
-                             (println "else:f" f)
-                             (apply f args)))))))
+                       (let [l' (compile-symbols symbols yul-env sto-env returns?)
+                             f (first l')
+                             args (rest l')]
+                         (apply f args))))))
 
 (declare evmlisp-args->yul-args)
 
 (defn compile-calldataload-for-args [definition tabs]
-   (if (empty? (:return definition))
+  (if (empty? (:return definition))
 
-     ; Constructs 'fn_name(...)'
-     (str (string/join "" (repeat (* 4 tabs) " "))
-          (:name definition) "("
-          (loop [args-load []
-                 start-offset 4
-                 args-count (count (:args definition))]
-            (cond
-              (= args-count 0) (string/join ", " args-load)
-              :else (recur
-                     (conj args-load
-                           (format "calldataload(%s)" start-offset))
-                     (+ start-offset 32)  ; todo: need to use real size!
-                     (- args-count 1)))) ")")
+                                        ; Constructs 'fn_name(...)'
+    (str (string/join "" (repeat (* 4 tabs) " "))
+         (:name definition) "("
+         (loop [args-load []
+                start-offset 4
+                args-count (count (:args definition))]
+           (cond
+             (= args-count 0) (string/join ", " args-load)
+             :else (recur
+                    (conj args-load
+                          (format "calldataload(%s)" start-offset))
+                    (+ start-offset 32)  ; todo: need to use real size!
+                    (- args-count 1)))) ")")
 
-     ;; Recursively produce calldata arguments if it's needed
-     ;; to store return value in memory.
-     ;; Constructs 'mstore(0, fn_name(...))'
-     (str "        mstore(0, " (compile-calldataload-for-args
-                                (dissoc definition :return) 0) ")")))
+    ;; Recursively produce calldata arguments if it's needed
+    ;; to store return value in memory.
+    ;; Constructs 'mstore(0, fn_name(...))'
+    (str "        mstore(0, " (compile-calldataload-for-args
+                               (dissoc definition :return) 0) ")")))
 
 
 (defn compile-top-level-return [definition]
@@ -209,15 +227,11 @@
 
 ;; TODO: handle dynamics data types.
 (defn compile-storage-var-body [definition yul-env]
-    (format "          %s := sload(%s)\n"
-            return-var (:slot definition)))
+  (format "          %s := sload(%s)\n"
+          return-var (:slot definition)))
 
 (defn compile-function-body
   [definition yul-env sto-env]
-  (println "compiled body:" (compile (:body definition)
-           yul-env
-           sto-env
-           (not (empty? (:return definition)))))
   (compile (:body definition)
            yul-env
            sto-env
@@ -341,5 +355,7 @@
 ;; - calldata binds
 (defn symtable-to-yul
   [symbols yul-env sto-ns]
-  (let [sto-env (init-storage-env symbols sto-ns)]
-    (compile-to-yul symbols yul-env sto-env)))
+    (compile-to-yul
+     symbols
+     (add-funcs-to-env symbols yul-env)
+     (init-storage-env symbols sto-ns)))
