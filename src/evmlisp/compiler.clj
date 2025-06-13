@@ -3,7 +3,7 @@
   (:require [evmlisp.env :as env]
             [evmlisp.symtable :as symtable]
             [evmlisp.errors :as errs]
-            [evmlisp.env :as env]            
+            [evmlisp.env :as env]
             [clojure.string :as string]
             [clojure.pprint :refer [pprint]]))
 
@@ -15,8 +15,12 @@
   "
   [symbols yul-env]
   (let [env-w-fns (env/env yul-env)
-        funcs (into (:external (:functions symbols))
-                    (:internal (:functions symbols)))
+        ;; fix: ugly code.
+        funcs (into (into (:external (:constants symbols))
+                          (:internal (:constants symbols)))
+                    
+                    (into (:external (:functions symbols))
+                          (:internal (:functions symbols))))
         func-defs (reduce (fn [full x]
                             (conj full
                                   [(:name x) (:fn-call x)])) [] funcs)
@@ -35,7 +39,7 @@
                                  full
                                  [(:name x) (:name x)]
                                  ))
-                    [] (:args definition))
+                    [] (into (:return definition) (:args definition)))
             ] (env/eset calldata-env k v))
     calldata-env))
 
@@ -64,33 +68,33 @@
 (declare compile)
 
 (defn compile-symbols
-  [symbols yul-env sto-env returns?]
+  [symbols yul-env sto-env]
   (println "symbols" symbols)
   (cond
     (symbol? symbols) (env/eget yul-env symbols)
     
     (map? symbols) (let [k (keys symbols)
-                         v (doall (map (fn [x] (compile x yul-env sto-env returns?))
+                         v (doall (map (fn [x] (compile x yul-env sto-env))
                                        (vals symbols)))]
                      (zipmap k v))
     
-    (seq? symbols) (mapv (fn [x] (compile x yul-env sto-env returns?))
+    (seq? symbols) (mapv (fn [x] (compile x yul-env sto-env))
                          symbols)
     
-    (vector? symbols) (mapv (fn [x] (compile x yul-env sto-env returns?))
+    (vector? symbols) (mapv (fn [x] (compile x yul-env sto-env))
                             symbols)
     
     :else symbols))
 
 ;; TODO: finish 'return' statement!!!!
 (defn compile
-  [symbols yul-env sto-env returns?]
+  [symbols yul-env sto-env]
   (println "symbols" symbols)
   (cond
     ;; TODO: what to do wtih this case?
     (nil? symbols) symbols
     
-    (not (seq? symbols)) (compile-symbols symbols yul-env sto-env returns?)
+    (not (seq? symbols)) (compile-symbols symbols yul-env sto-env)
     
     (empty? symbols) '()
     
@@ -115,13 +119,15 @@
                                                        (nth l 1)
                                                        let-env
                                                        sto-env
-                                                       returns?))))
+                                                       ))))
                                              [] local-defs))]
-                         (println "let ldefs" local-defs)
                          (doseq [[b _] local-defs]
                            (env/eset let-env b b))                         
                          (str yul-lets "\n"
-                              (compile (nth symbols 2) let-env sto-env returns?)))
+                              (string/join "\n"
+                              (mapv (fn [i] (compile (nth symbols i)
+                                                    let-env sto-env))
+                                    (range 2 (count symbols))))))
 
                        ;; 'do' - evaluate all the elements of the list
                        ;; and return the final evaluated element.
@@ -131,7 +137,7 @@
                                               sym
                                               yul-env
                                               sto-env
-                                              returns?))
+                                              ))
                                     (rest symbols))
                              l (- (count exprs) 1)
                              last-expr (get exprs l)]
@@ -144,18 +150,22 @@
                              ;; Compile bindings like 'let'.
                              yul-lets (compile
                                        (list 'let (first (rest symbols)) nil)
-                                       loop-env sto-env
-                                       returns?)
+                                       loop-env sto-env)
                              [_ _ cnd body post-iter] symbols
                              slt (assoc (vec symbols) 0 'let)]
+                         (println "LOOP: yul-lets" yul-lets)
+                         ;; Validate that all parts of the 'loop' are present.
+                         (if 
+                             (some #{true} (map nil? [cnd body post-iter]))
+                           (errs/err-incorrect-loop-def))
                          (doseq [[b _] (partition 2 (first (rest symbols)))]
                            (env/eset loop-env b b))
                          
                          (format "for { %s } %s { %s }\n { %s }\n"
                                  yul-lets
-                                 (compile cnd loop-env sto-env returns?)
-                                 (compile post-iter loop-env sto-env returns?)
-                                 (compile body loop-env sto-env returns?)))
+                                 (compile cnd loop-env sto-env)
+                                 (compile post-iter loop-env sto-env)
+                                 (compile body loop-env sto-env)))
                        
 
                        ;; 'sto' - a storage-access function.
@@ -170,7 +180,7 @@
                            (apply (env/eget sto-env op)
                                   [(:slot (env/eget sto-env sto-var))
                                    (compile (last symbols)
-                                            yul-env sto-env returns?)])
+                                            yul-env sto-env)])
 
                            (= op 'read!)
                            (apply (env/eget sto-env op) [sto-var])
@@ -179,7 +189,7 @@
                            (errs/err-bind-not-found op)))
                        
                        :else
-                       (let [l' (compile-symbols symbols yul-env sto-env returns?)
+                       (let [l' (compile-symbols symbols yul-env sto-env)
                              f (first l')
                              args (rest l')]
                          (apply f args))))))
@@ -188,8 +198,6 @@
 
 (defn compile-calldataload-for-args [definition tabs]
   (if (empty? (:return definition))
-
-                                        ; Constructs 'fn_name(...)'
     (str (string/join "" (repeat (* 4 tabs) " "))
          (:name definition) "("
          (loop [args-load []
@@ -217,12 +225,18 @@
 
 ;; TODO: handle dynamics data types.
 (defn compile-storage-var-body [definition yul-env]
-  (format "          %s := sload(%s)\n"
-          return-var (:slot definition)))
+  (let [var-type (:var-type definition)]
+    (cond
+      (:simple var-type)      
+      (format "          %s := sload(%s)\n" return-var (:slot definition))
+
+      ;; TODO: handle maps and arrays.
+      :else
+      (format "          %s := sload(%s)\n" return-var (:slot definition)))))
 
 (defn compile-function-body
   [definition yul-env sto-env]
-  (let [body (compile (:body definition) yul-env sto-env false)
+  (let [body (compile (:body definition) yul-env sto-env)
         lines (string/split body #"\n")]
     body))
 
@@ -236,42 +250,42 @@
             (str (:name a)))) [] args)))
 
 (defn evmlisp-func-body->yul-func-body
-  [definition yul-env sto-env]
-  (let [storage? (contains? definition :slot)]
-    (if storage?
-      ;; Storage getters will just use `sload()`
-      (compile-storage-var-body definition yul-env)
-      (compile-function-body definition yul-env sto-env))))
+  [definition yul-env sto-env def-type]
+  (cond
+    (contains? def-type :functions)
+    (compile-function-body definition yul-env sto-env)
+    
+    (contains? def-type :storage)
+    ;; Storage getters will just use `sload()`
+    (compile-storage-var-body definition yul-env)
+
+    (contains? def-type :constants)
+    (format "          ret_val := %s\n" (:body definition))))
 
 (defn evmlisp-ret->yul-ret [ret]
-  (let [return-count (count ret)]
-    (cond      
-      (> return-count 1)
-      errs/err-gt1-return
-
-      (= return-count 1)
-      (format " -> %s " return-var)
-
-      :else
-      " ")))
+  (format " -> %s"
+          (string/join
+           ", "
+           (mapv (fn [r] (:name r)) ret))))
 
 (defn evmlisp-func->yul-func
   "Translates individual evmlisp function into a Yul function."
-  [definition yul-env sto-env]
+  [definition yul-env sto-env def-type]
   (str
    "      function " (:name definition) "("
    ;; 1) Compile arguments + returns.
    (evmlisp-args->yul-args (:args definition)) ")" (evmlisp-ret->yul-ret
                                                     (:return definition)) "{\n"
    ;; 2) Compile function body.
-   (evmlisp-func-body->yul-func-body
-    definition
+   (evmlisp-func-body->yul-func-body definition
     (init-local-env yul-env definition)
-    sto-env)
+    sto-env def-type)
    "      }\n"))
 
-(defn constructor-code [constructor yul-env]
-  "    // Constructor is unsupported rn\n")
+(defn constructor-code [constructor yul-env sto-env]
+  (if (nil? constructor)
+    ""
+    (compile-function-body constructor yul-env sto-env)))
 
 (defn dispatcher-code [definitions yul-env]
   (reduce (fn [dispatcher definition]
@@ -284,34 +298,25 @@
           ""
           definitions))
 
-;; TODO: utilzie other function-creation methods!
-(defn storage-getters-code
-  "Generates storage access functions."
-  [ex-sto yul-env]
-  (reduce (fn [functions definition]
-            (str functions
+(defn generate-getters
+  [definitions yul-env sto-env def-type]
+  (reduce (fn [full definition]
+            (str full
                  (evmlisp-func->yul-func
-                  definition yul-env '{}))) "" ex-sto))
-
-(defn functions-code
-  [definitions yul-env sto-env]
-  (reduce (fn [functions definition]
-            (str functions
-                 (evmlisp-func->yul-func definition yul-env sto-env)))
-          ""
-          definitions))
+                  definition yul-env sto-env def-type))) "" definitions))
 
 (defn compile-to-yul
   "This function is doing a template-based Yul code generation."
   [symbols yul-env sto-env]  
   (let [contract-name (:ns symbols)
         constructor (:constructor symbols)
+        constants (:constants symbols)
         storage (:storage symbols)
         functions (:functions symbols)]
     ;; TODO: add constructor code (if there's one).
     (str "object \"" contract-name "\" {\n"
          "  code {\n"
-         (constructor-code constructor yul-env)
+         (constructor-code constructor yul-env sto-env)
          "    datacopy(0, dataoffset(\"runtime\"), datasize(\"runtime\"))\n"
          "    return(0, datasize(\"runtime\"))\n"
          "  }\n"
@@ -321,19 +326,23 @@
          "      // Dispatcher\n"
          "      switch shr(224, calldataload(0))\n"
          (dispatcher-code (:external functions) yul-env)
-         "      // Storage-access dispatcher\n"         
+         "      // Storage-access\n"
          (dispatcher-code (:external storage) yul-env)
+         "      // External constants\n"         
+         (dispatcher-code (:external constants) yul-env)
          "      default { revert(0,0) }\n\n"
          "\n"
-         (functions-code (:external functions)
-                         yul-env sto-env)
-         (functions-code (:internal functions)
-                         yul-env sto-env)
+         (generate-getters (:external functions)
+                         yul-env sto-env {:functions true})
+         (generate-getters (:internal functions)
+                         yul-env sto-env {:functions true})
          "\n"
-         "      /* -------- external storage access ---------- */\n"
-         (storage-getters-code (:external storage) yul-env)
-         "      /* -------- internal storage access ---------- */\n"
-         (storage-getters-code (:internal storage) yul-env)         
+         "      /* -------- storage access ---------- */\n"
+         (generate-getters (:external storage) yul-env '{} {:storage true})
+         (generate-getters (:internal storage) yul-env '{} {:storage true})
+         "      /* -------- constants ---------- */\n"
+         (generate-getters (:external constants) yul-env '{} {:constants true})
+         (generate-getters (:internal constants) yul-env '{} {:constants true})
          "\n    }\n"
          "  }\n"
          "}")))

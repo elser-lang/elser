@@ -61,7 +61,6 @@
          args))
 
 (defn sto-var-type
-  "Returns one of storage variable types [atom | map | d-array | s-array]"
   [sto-types]
   (cond
     (some #{'=>} sto-types)
@@ -85,9 +84,37 @@
     {:external external
      :internal internal}))
 
-;; TODO: implement
-(defn process-constructor [constructor] {:constructor ""})
-(defn process-constants [constants] {:constants ""})
+;; TODO: all these 'process-*' functions should be combined into 1.
+(defn process-constructor [constructor]
+  {:constructor {:body (second constructor)}})
+
+(defn process-constants [constants]
+  (let [definitions (process-ex-in constants)]
+    (let [initial-state {:constants
+                         {:external [] :internal []}}]
+      (reduce (fn [state [visibility defs]]
+                (reduce (fn [state def-form]
+                          (let [[_ c-name c-type val] def-form
+                                sig (format "%s()" c-name)
+                                var-def {:name c-name
+                                         :selector (obtain-selector sig)
+                                         :signature sig
+                                         :fn-call sig
+                                         :body val
+                                         :return (map name c-type)}]
+                            ;; Validate that name is capped.
+                            (if (not (= (str c-name) (string/upper-case c-name)))
+                              (errs/err-non-upper-case-const c-name)
+                              
+                              (-> state
+                                  (update-in
+                                   [:constants visibility] conj var-def)))))
+                          state
+                          defs))
+              initial-state
+              [[:external (:external definitions)]
+               [:internal (:internal definitions)]]))))
+
 (defn process-events [events] {:events ""})
 
 (defn process-functions [functions]
@@ -105,7 +132,7 @@
                                        :args (args-to-symbols args)
                                        :fn-type (function-type fn-type)
                                        :body body
-                                       :return (map name (vec ret))}]
+                                       :return (args-to-symbols (second ret))}]
                           (-> state
                               (update-in [:functions visibility] conj var-def))))
                       state
@@ -177,6 +204,10 @@
    :string (fn [c]
           (if (not (string? (first (rest c))))
             (errs/err-invalid-nested-type (first c) (rest c) 'string)))
+
+   :symbol (fn [c]
+             (if (not (symbol? (first (rest c))))
+               (errs/err-invalid-nested-type (first c) (rest c) 'symbol)))
    })
 
 (defn collect-symbols
@@ -190,7 +221,7 @@
        
        ;; Namespace defintion.
        (= 'ns (first form))
-       (do ((:string valid-nested-type?) form)
+       (do ((:symbol valid-nested-type?) form)
            (assoc symbols :ns (second form)))
 
        (= 'constructor (first form))

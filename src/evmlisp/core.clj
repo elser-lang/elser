@@ -42,9 +42,9 @@
    ['<= (fn [x y] (format "iszero(gt(%s, %s))" x y))]
    
    ;; Logical operators (in progress)
-   ['& "and(%s, %s)"]
-   ['| "or(%s, %s)"]
-   ['~ "not(%s)"]
+   ['and (fn [x y] (format "and(%s, %s)" x y))]
+   ['or (fn [e o] (format "or(%s, %s)" e o))]
+   ['not (fn [e] (format "not(%s)" e))]
 
    ['caller (fn [] "caller()")]
    ['origin (fn [] "origin()")]
@@ -60,6 +60,7 @@
            pred true-body false-body))]
    
    ['set! (fn [bind expr] (format "%s := %s" bind expr))]
+   ['-> (fn [top local] (format "%s := %s" top local))]
    ])
 
 (def sto-ns

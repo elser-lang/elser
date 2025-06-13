@@ -140,7 +140,7 @@
         (println "Generated symbol-table:")
         (clojure.pprint/pprint symbols))
 
-      (:yul options)
+      (:compile options)
       (let [symbols (symtable/collect-symbols ast)
             yul (compiler/symtable-to-yul symbols yul-env core/sto-ns)]
         (println "Generated Yul:")
