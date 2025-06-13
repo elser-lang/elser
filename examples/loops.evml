@@ -1,0 +1,12 @@
+(ns loops)
+
+(functions 
+ {:external
+  [
+   (defn factorial [(n :uint256)] (-> [(f :uint256)])
+     (let [fact 1]
+       (loop [k n] (> k 1)
+             (set! fact (* k fact))
+             (set! k (- k 1)))
+       (-> f fact)))
+   ]})
