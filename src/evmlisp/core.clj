@@ -36,22 +36,25 @@
 
    ;; Comparison (in progress)
    ['= (fn [x y] (format "eq(%s, %s)" x y))]
+   ['!= (fn [x y] (format "not(eq(%s, %s))" x y))]   
    ['> (fn [x y] (format "gt(%s, %s)" x y))]
    ['>= (fn [x y] (format "iszero(lt(%s, %s))" x y))]
    ['< (fn [x y] (format "lt(%s, %s)" x y))]
    ['<= (fn [x y] (format "iszero(gt(%s, %s))" x y))]
    
-   ;; Logical operators (in progress)
    ['and (fn [x y] (format "and(%s, %s)" x y))]
    ['or (fn [e o] (format "or(%s, %s)" e o))]
    ['not (fn [e] (format "not(%s)" e))]
 
    ['caller (fn [] "caller()")]
    ['origin (fn [] "origin()")]
+   ['self (fn [] "address()")]
+   ['balance (fn [a] (format "balance(%s)" a))]
 
    ['assert (fn [c] (format "if iszero(%s) { revert(0,0) }\n" c))]
    ;; fix: messages aren't displayed yet.
    ['revert (fn [msg] "revert(0,0)\n")]
+   ['emit! (fn [func args] (apply func args))]
 
    ;; Control-flow statements
    ['if (fn [pred true-body false-body]
@@ -60,7 +63,10 @@
            pred true-body false-body))]
    
    ['set! (fn [bind expr] (format "%s := %s" bind expr))]
-   ['-> (fn [top local] (format "%s := %s" top local))]
+   ['invoke! (fn [func args] (apply func args))]
+   ['-> (fn [top local] (format "%s := %s" top local))]   
+
+   ['addr.zero 0x0000000000000000000000000000000000000000]
    ])
 
 (def sto-ns
@@ -70,6 +76,8 @@
                      (if (nil? args)
                        ""
                        args)))]
-   
-   ['write! (fn [slot val] (format "sstore(%s, %s)" slot val))]
+
+   ;; TODO: handle arrays/maps.
+   ['write! (fn [sto-var val]
+              (format "sstore(%s, %s)" (:slot sto-var) val))]
    ])

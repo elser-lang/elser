@@ -30,10 +30,6 @@
   (throw (Exception. (format "evmlisp: slot collision in slot %s" s))))
 
 
-(defn err-gt1-return
-  []
-  (throw (Exception. "evmlisp: multi-return is unsupported.")))
-
 (defn err-invalid-top-level-form [s]
   (throw (Exception. (format "evmlisp: top-level form must be a list (): %s" s))))
 
@@ -48,3 +44,23 @@
                   f have want))))
 
 
+(defn err-non-upper-case-const
+  [s]
+  (throw (Exception. (format "evmlisp: constant name must be in upper case %s" s))))
+
+(defn err-incorrect-loop-def
+  []
+  (throw (Exception.
+          (format "evmlisp: invalid loop defintion, should be (loop [binds] (cond) (body) (post-iter))"))))
+
+(defn err-incorrect-arr-def
+  [have]
+  (throw (Exception.
+          (format
+           "evmlisp: invalid array defintion: have (def name [(%s :type)]) | want (def name [(array :type)])"))))
+
+(defn err-bad-type [s t]
+  (throw (Exception. (format "evmlisp: type %s %s" t s))))
+
+(defn err-invalid-def-key [h w]
+  (throw (Exception. (format "evmlisp: invalid variable definition: have %s | want %s" h w))))

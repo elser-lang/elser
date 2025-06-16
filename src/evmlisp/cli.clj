@@ -6,9 +6,8 @@
 (def cli-options
   [["-c" "--compile" "Compile to EVM bytecode."]
    ["-a" "--ast" "Show the AST."]
+   ["-y" "--yul" "Compile to Yul."]   
    ["-s" "--symtable" "Show symbol-table generated from evmlisp."]
-   ["-o" "--output FILE" "Output file for compilation results"
-    :default "out.yul"]
    ["-h" "--help" "Show help message."]])
 
 (defn usage [options-summary]

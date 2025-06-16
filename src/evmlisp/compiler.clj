@@ -16,11 +16,13 @@
   [symbols yul-env]
   (let [env-w-fns (env/env yul-env)
         ;; fix: ugly code.
-        funcs (into (into (:external (:constants symbols))
-                          (:internal (:constants symbols)))
-                    
-                    (into (:external (:functions symbols))
-                          (:internal (:functions symbols))))
+        funcs (into (:events symbols)
+
+               (into (into (:external (:constants symbols))
+                           (:internal (:constants symbols)))
+                     
+                     (into (:external (:functions symbols))
+                           (:internal (:functions symbols)))))
         func-defs (reduce (fn [full x]
                             (conj full
                                   [(:name x) (:fn-call x)])) [] funcs)
@@ -57,7 +59,8 @@
                   (:internal (:storage symbols)))
         sto-defs (reduce (fn [full x]
                            (conj full
-                                 [(:name x) {:args (:args x) :slot (:slot x)}])) [] sto)
+                                 [(:name x) {:args (:args x) :slot (:slot x)
+                                             :type (:var-type x)}])) [] sto)
         ]
     (do
       ;; Set core storage operations.
@@ -69,7 +72,6 @@
 
 (defn compile-symbols
   [symbols yul-env sto-env]
-  (println "symbols" symbols)
   (cond
     (symbol? symbols) (env/eget yul-env symbols)
     
@@ -143,6 +145,10 @@
                              last-expr (get exprs l)]
                          (string/join "\n" exprs))
 
+                       ;; 'invoke!' - function invocation.
+                       (= f 'invoke!)
+                       (compile (rest symbols) yul-env sto-env)
+
                        ;; 'loop' in Yul (loop [binds] (cond) (post-iter) (body))
                        ;; in evmlisp (loop [binds] (cond) (body) (post-iter)).
                        (= f 'loop)
@@ -153,17 +159,16 @@
                                        loop-env sto-env)
                              [_ _ cnd body post-iter] symbols
                              slt (assoc (vec symbols) 0 'let)]
-                         (println "LOOP: yul-lets" yul-lets)
                          ;; Validate that all parts of the 'loop' are present.
                          (if 
                              (some #{true} (map nil? [cnd body post-iter]))
                            (errs/err-incorrect-loop-def))
                          (doseq [[b _] (partition 2 (first (rest symbols)))]
                            (env/eset loop-env b b))
-                         
+
                          (format "for { %s } %s { %s }\n { %s }\n"
                                  yul-lets
-                                 (compile cnd loop-env sto-env)
+                                 (compile (second cnd) loop-env sto-env)
                                  (compile post-iter loop-env sto-env)
                                  (compile body loop-env sto-env)))
                        
@@ -178,7 +183,7 @@
                          (cond
                            (= op 'write!)
                            (apply (env/eget sto-env op)
-                                  [(:slot (env/eget sto-env sto-var))
+                                  [(env/eget sto-env sto-var)
                                    (compile (last symbols)
                                             yul-env sto-env)])
 
@@ -234,6 +239,22 @@
       :else
       (format "          %s := sload(%s)\n" return-var (:slot definition)))))
 
+(defn compile-event-body [definition]
+  (loop [code-lines []
+         mem-counter 0
+         args (:args definition)]
+    (println "args" args)
+    (if (= (count args) 0)
+      (str (string/join "\n" code-lines) "\n"
+           (format "          log0(0,%s)" mem-counter) "\n")
+      (recur
+       (conj code-lines
+             (format "          mstore(%s, %s)"
+                     mem-counter (:name (first args))))
+       (+ mem-counter 32)
+       (rest args)
+       ))))
+
 (defn compile-function-body
   [definition yul-env sto-env]
   (let [body (compile (:body definition) yul-env sto-env)
@@ -260,13 +281,21 @@
     (compile-storage-var-body definition yul-env)
 
     (contains? def-type :constants)
-    (format "          ret_val := %s\n" (:body definition))))
+    (format "          ret_val := %s\n" (:body definition))
+
+    (contains? def-type :events)
+    (compile-event-body definition)))
 
 (defn evmlisp-ret->yul-ret [ret]
-  (format " -> %s"
-          (string/join
-           ", "
-           (mapv (fn [r] (:name r)) ret))))
+  (if (empty? ret)
+    ""
+    
+    (format " -> %s"
+            (string/join
+             ", "
+             (mapv (fn [r] (if (map? r)
+                            (:name r)
+                            "ret_val")) ret)))))
 
 (defn evmlisp-func->yul-func
   "Translates individual evmlisp function into a Yul function."
@@ -310,6 +339,7 @@
   [symbols yul-env sto-env]  
   (let [contract-name (:ns symbols)
         constructor (:constructor symbols)
+        events (:events symbols)
         constants (:constants symbols)
         storage (:storage symbols)
         functions (:functions symbols)]
@@ -343,6 +373,8 @@
          "      /* -------- constants ---------- */\n"
          (generate-getters (:external constants) yul-env '{} {:constants true})
          (generate-getters (:internal constants) yul-env '{} {:constants true})
+         "      /* -------- events ---------- */\n"         
+         (generate-getters events yul-env '{} {:events true})
          "\n    }\n"
          "  }\n"
          "}")))

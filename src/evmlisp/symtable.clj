@@ -19,10 +19,16 @@
         (errs/err-arity-exception name (count args) arity)
         (apply format fmt-sig args)))))
 
+(defn obtain-hash [val stringify?]
+  (let [hash-bytes (Hash/sha3 (.getBytes val))]
+    (if stringify?
+      (Numeric/toHexString hash-bytes)
+      hash-bytes)))
+
 (defn obtain-selector
   "Converts a Solidity function signature to a 4-byte selector"
   [signature]
-  (let [hash-bytes (Hash/sha3 (.getBytes signature))
+  (let [hash-bytes (obtain-hash signature false)
         selector-bytes (byte-array 4)]
     (System/arraycopy hash-bytes 0 selector-bytes 0 4)
     (Numeric/toHexString selector-bytes)))
@@ -115,31 +121,48 @@
               [[:external (:external definitions)]
                [:internal (:internal definitions)]]))))
 
-(defn process-events [events] {:events ""})
+(defn process-events [events]
+  (println "events" (last events))
+  (let [initial-state {:events []}
+        definitions (last events)]
+    (reduce (fn [state def-form]
+              (println "def-form" def-form)
+              (let [[_ event-name args] def-form
+                    sig (defn-to-signature event-name args)
+                    var-def {:name event-name
+                             :sig-hash (obtain-hash sig true)
+                             :signature sig
+                             :fn-call (sig->fn-call sig)
+                             :args (args-to-symbols args)}]
+                (println "var-def" var-def)
+                (-> state
+                    (update-in [:events] conj var-def))))
+            initial-state
+            definitions)))
 
 (defn process-functions [functions]
   (let [definitions (process-ex-in functions)]
-      (let [initial-state {:functions
-                       {:external [] :internal []}}]
-    (reduce (fn [state [visibility defs]]
-              (reduce (fn [state def-form]
-                        (let [[fn-type fn-name args ret body] def-form
-                              sig (defn-to-signature fn-name args)
-                              var-def {:name fn-name
-                                       :selector (obtain-selector sig)
-                                       :signature sig
-                                       :fn-call (sig->fn-call sig)
-                                       :args (args-to-symbols args)
-                                       :fn-type (function-type fn-type)
-                                       :body body
-                                       :return (args-to-symbols (second ret))}]
-                          (-> state
-                              (update-in [:functions visibility] conj var-def))))
-                      state
-                      defs))
-            initial-state
-            [[:external (:external definitions)]
-             [:internal (:internal definitions)]]))))
+    (let [initial-state {:functions
+                         {:external [] :internal []}}]
+      (reduce (fn [state [visibility defs]]
+                (reduce (fn [state def-form]
+                          (let [[fn-type fn-name args ret body] def-form
+                                sig (defn-to-signature fn-name args)
+                                var-def {:name fn-name
+                                         :selector (obtain-selector sig)
+                                         :signature sig
+                                         :fn-call (sig->fn-call sig)
+                                         :args (args-to-symbols args)
+                                         :fn-type (function-type fn-type)
+                                         :body body
+                                         :return (args-to-symbols (second ret))}]
+                            (-> state
+                                (update-in [:functions visibility] conj var-def))))
+                        state
+                        defs))
+              initial-state
+              [[:external (:external definitions)]
+               [:internal (:internal definitions)]]))))
 
 ;; FIX: this function:
 ;; - can't increment storage counter for data that occupies more than 32 bytes.
@@ -156,15 +179,15 @@
                               custom-slot (when (map? (last opts)) (:slot (last opts)))
                               slot (or custom-slot (:slot-counter state))
                               ret (map name (subvec sto-types
-                                                       (- (count sto-types) 1)))
+                                                    (- (count sto-types) 1)))
                               t (sto-var-type sto-types)
                               sto-types (if (:map t)
-                                           (reduce
-                                            (fn [v t] (conj v (list t)))
-                                            []
-                                            (drop-last
-                                             (remove #{'=>} sto-types)))
-                                           '[])
+                                          (reduce
+                                           (fn [v t] (conj v (list t)))
+                                           []
+                                           (drop-last
+                                            (remove #{'=>} sto-types)))
+                                          '[])
                               sig (def-to-signature def-name sto-types)
                               ;; Increment counter if using auto-allocation.
                               new-counter (if custom-slot
@@ -177,7 +200,6 @@
                                        :slot slot
                                        :return ret
                                        :var-type t}]
-                          (println "sto-types" sto-types)
                           ;; Check for storage collision.
                           (if (some #{slot} (:occupied-slots state))
                             (errs/err-slot-collision slot)
@@ -196,6 +218,10 @@
   {:list (fn [c]
            (if (not (list? (first (rest c))))
              (errs/err-invalid-nested-type (first c) (rest c) '())))
+
+   :vec (fn [c]
+           (if (not (vector? (first (rest c))))
+             (errs/err-invalid-nested-type (first c) (rest c) '())))   
 
    :map (fn [c]
           (if (not (map? (first (rest c))))
@@ -229,7 +255,7 @@
            (merge symbols (process-constructor form)))
 
        (= 'events (first form))
-       (do ((:list valid-nested-type?) form)
+       (do ((:vec valid-nested-type?) form)
            (merge symbols (process-events form)))
 
        (= 'constants (first form))
