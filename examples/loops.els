@@ -1,0 +1,13 @@
+(ns factorial)
+
+(functions
+ {:external
+  [
+   (defn factorial [(n :i256)] (-> [(f :i256)])
+     (let [fact 1]
+       (loop [k n] (while (> k 1))
+             (set! fact (* k fact))
+             (do
+              (set! k (- k 1))))
+       (-> f fact)))
+   ]})

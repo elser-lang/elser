@@ -1,0 +1,12 @@
+(ns empty)
+
+(constructor ())
+
+(events ())
+
+(constants {})
+
+(storage {})
+
+(functions {})
+
