@@ -5,8 +5,8 @@
 ;; Check via multiplication that it wasn't an odd number.
 (constructor
  (do
-   (sto write! seller (caller))
-   (sto write! value (/ (callvalue) 2))))
+  (sto write! seller (caller))
+  (sto write! value (/ (callvalue) 2))))
 
 (storage
  {:external
@@ -14,7 +14,6 @@
    (def value [:u256])
    (def seller [:addr])
    (def buyer [:addr])
-
    (def state [:u256])]})
 
 (events
@@ -30,8 +29,7 @@
    (def STATE_CREATED [:u256] 0)
    (def STATE_LOCKED [:u256] 1)
    (def STATE_RELEASE [:u256] 2)
-   (def STATE_INACTIVE [:u256] 3)
-   ]})
+   (def STATE_INACTIVE [:u256] 3)]})
 
 (functions
  {:external
@@ -42,10 +40,11 @@
    (defn abort [] (-> [])
      (do (invoke! inState STATE_CREATED)
          (invoke! onlySeller)
-         (emit! Aborted [])
-         (sto write! state STATE_INACTIVE)
-         (transfer* (sto read! seller)
-                    (balance (self)))))
+       (emit! Aborted [])
+
+       (sto write! state STATE_INACTIVE)
+       (transfer* (sto read! seller)
+                  (balance (self)))))
 
    ;; Confirm the purchase as buyer.
    ;; Transaction has to include `2 * value` ether.
@@ -55,37 +54,37 @@
      (do (invoke! inState STATE_CREATED)
          (let [c (= (callvalue) (* 2 (sto read! value)))]
            (invoke! condition c))
-         (emit! PurchaseConfirmed [])
-         (sto write! buyer (caller))
-         (sto write! state STATE_LOCKED)))
+       (emit! PurchaseConfirmed [])
+       (sto write! buyer (caller))
+       (sto write! state STATE_LOCKED)))
 
    ;; Confirm that you (the buyer) received the item.
    ;; This will release the locked ether.
    (defn confirmReceived [] (-> [])
      (do (invoke! inState STATE_LOCKED)
          (invoke! onlyBuyer)
-         (emit! ItemReceived [])
-         (sto write! state STATE_RELEASE)
-         (transfer*
-          (sto read! buyer)
-          (sto read! value))))
+       (emit! ItemReceived [])
+       (sto write! state STATE_RELEASE)
+       (transfer*
+        (sto read! buyer)
+        (sto read! value))))
 
    ;; This function refunds the seller, i.e.
    ;; pays back the locked funds of the seller.
    (defn refundSeller [] (-> [])
      (do (invoke! inState STATE_RELEASE)
          (invoke! onlyBuyer)
-         (emit! SellerRefunded [])
-         (sto write! state STATE_INACTIVE)
-         (transfer*
-          (sto read! seller)
-          (* (sto read! value) 3))))
+       (emit! SellerRefunded [])
+       (sto write! state STATE_INACTIVE)
+       (transfer*
+        (sto read! seller)
+        (* (sto read! value) 3))))
    ]
-
+  
   :internal
   [
    (defn condition [(c :bool)] (-> [])
-     (assert c))
+     (require c "bad cond"))
    
    (defn onlyBuyer [] (-> [])
      (assert (= (caller) (sto read! buyer))))

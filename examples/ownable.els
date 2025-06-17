@@ -1,0 +1,41 @@
+(ns ownable)
+
+(constructor
+ (sto write! owner "0xd8da6bf26964af9d7eed9e03e53415d37aa96045"))
+
+(events
+ [
+  (def OwnershipTransferred [(prevOwner :addr) (newOwner :addr)])])
+
+(storage
+ {:external
+  [
+   (def owner [:addr])
+   ]})
+
+(functions
+ {:external
+  [
+   (defn transferOwnership [(newOwner :addr)] (-> [])
+     (do
+       (invoke! checkOwner)
+       (assert (!= newOwner addr.zero))
+       (invoke! transferOwnership newOwner)))
+   
+   (defn renounceOwnership [] (-> [])
+     (do (invoke! checkOwner)
+         (invoke! transferOwnership addr.zero)))
+   ]
+
+  :internal
+  [
+   ;; Throws if the sender is not the owner.
+   (defn checkOwner [] (-> [])
+     (assert (= (caller) (sto read! owner))))
+
+   (defn transferOwnership [(newOwner :addr)] (-> [])
+     (let [oldOwner (sto read! owner)]
+       (do
+         (sto write! owner newOwner)
+         (emit! OwnershipTransferred [oldOwner newOwner]))))
+   ]})

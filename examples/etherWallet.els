@@ -1,0 +1,16 @@
+(ns etherWallet)
+
+(constructor (sto write! owner (caller)))
+
+(storage {:external [(def owner [:addr])]})
+
+(functions
+ {:external
+  [
+   (defn withdraw [(amount :u256)] (-> [])
+     (do
+       (assert (= (caller) (sto read! owner)))
+       (transfer* (caller) amount)))
+
+   (defn getBalance [] (-> [(b :u256)])
+     (-> b (balance (self))))]})
