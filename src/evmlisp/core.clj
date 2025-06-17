@@ -47,13 +47,20 @@
    ['not (fn [e] (format "not(%s)" e))]
 
    ['caller (fn [] "caller()")]
+   ['callvalue (fn [] "callvalue()")]   
    ['origin (fn [] "origin()")]
    ['self (fn [] "address()")]
    ['balance (fn [a] (format "balance(%s)" a))]
+   ['timestamp (fn [] "timestamp()")]
 
    ['assert (fn [c] (format "if iszero(%s) { revert(0,0) }\n" c))]
+   ['require (fn [c msg]
+               (format
+                "if iszero(%s) { let err := \"%s\" mstore(0, err) revert(0,32) }\n"
+                c msg))]
+   
    ;; fix: messages aren't displayed yet.
-   ['revert (fn [msg] "revert(0,0)\n")]
+   ['revert (fn [msg] (format "let msg := \"%s\" mstore(0,msg) revert(0,32)\n" msg))]
    ['emit! (fn [func args] (apply func args))]
 
    ;; Control-flow statements

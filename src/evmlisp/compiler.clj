@@ -91,7 +91,6 @@
 ;; TODO: finish 'return' statement!!!!
 (defn compile
   [symbols yul-env sto-env]
-  (println "symbols" symbols)
   (cond
     ;; TODO: what to do wtih this case?
     (nil? symbols) symbols
@@ -171,6 +170,11 @@
                                  (compile (second cnd) loop-env sto-env)
                                  (compile post-iter loop-env sto-env)
                                  (compile body loop-env sto-env)))
+
+                       (= f 'transfer*)
+                       (let [to (compile (second symbols) yul-env sto-env)
+                             value (compile (last symbols) yul-env sto-env)]
+                         (format "pop(call(gas(),%s,%s,0,0,0,0))" to value))
                        
 
                        ;; 'sto' - a storage-access function.
@@ -243,7 +247,6 @@
   (loop [code-lines []
          mem-counter 0
          args (:args definition)]
-    (println "args" args)
     (if (= (count args) 0)
       (str (string/join "\n" code-lines) "\n"
            (format "          log0(0,%s)" mem-counter) "\n")
