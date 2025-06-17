@@ -33,7 +33,7 @@
     ; Skip comments
     (if (not= \; (get line 0))
       (try
-        (println "output:\n" (rep line))
+        (println "===========\n" (rep line))
         (catch Throwable e (clj-repl/pst e))))
       (recur)))
 
