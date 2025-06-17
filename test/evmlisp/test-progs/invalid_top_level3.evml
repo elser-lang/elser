@@ -1,0 +1,7 @@
+(ns empty)
+
+(constructor ())
+
+(storage {})
+
+(constants [])

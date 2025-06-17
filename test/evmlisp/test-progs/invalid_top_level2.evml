@@ -1,0 +1,5 @@
+(ns empty)
+
+(constructor ())
+
+(storage ())
