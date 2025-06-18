@@ -1,4 +1,4 @@
-(ns purchase)
+(ns purchase (:pragma "0.8.29"))
 
 ;; Ensure that `callvalue` is an even number.
 ;; Division will truncate if it is an odd number.
@@ -11,10 +11,10 @@
 (storage
  {:external
   [
-   (def value [:u256])
-   (def seller [:addr])
-   (def buyer [:addr])
-   (def state [:u256])]})
+   (def value [(v mut :u256)])
+   (def seller [(s mut :addr)])
+   (def buyer [(b mut :addr)])
+   (def state [(s mut :u256)])]})
 
 (events
  [
@@ -26,10 +26,10 @@
 (constants
  {:internal
   [;; These constants act as enum.
-   (def STATE_CREATED [:u256] 0)
-   (def STATE_LOCKED [:u256] 1)
-   (def STATE_RELEASE [:u256] 2)
-   (def STATE_INACTIVE [:u256] 3)]})
+   (def STATE_CREATED [(c :u256)] 0)
+   (def STATE_LOCKED [(l :u256)] 1)
+   (def STATE_RELEASE [(r :u256)] 2)
+   (def STATE_INACTIVE [(i :u256)] 3)]})
 
 (functions
  {:external

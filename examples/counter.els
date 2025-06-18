@@ -1,13 +1,13 @@
-(ns counter)
+(ns counter (:pragma "0.8.29"))
 
 (storage
  {:external
-  [(def count [:u256])]})
+  [(def count [(x mut :u256)])]})
 
 (functions
  {:external
   [
-   (defn get [] (-> [(c :u256)])
+   (defn get [] (-> [(c mut :u256)])
      (-> c (sto read! count)))
 
    (defn inc [] (-> [])

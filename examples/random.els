@@ -1,0 +1,83 @@
+(ns math (:pragma "0.8.29"))
+
+(storage
+ {:internal [
+ 
+ (def result [(x mut :u256)])
+ (def truth [(t :bool)])
+ (def temp [(t :addr)])
+ (def buyer [(t :addr)])
+ ]})
+
+(events [(def Event [])])
+
+(constants
+ {:external [
+ 
+ (def NUMBER [(x :u256)] 15)
+ 
+ ]})
+
+(functions
+ {:external [
+
+ (defn addi [(x :u256) (y :u256)] (-> [(f mut :u256)])
+   (-> f (+ x y)))
+
+ (defn divi [(x :u256) (y :u256)] (-> [(f mut :u256)])
+   (-> f (/ x y)))
+
+ (defn msgSender [] (-> [(s mut :addr)])
+   (-> s (caller)))
+
+ (defn msgValue [] (-> [(s mut :u256)])
+   (-> s (callvalue)))
+
+ (defn txOrigin [] (-> [(o mut :addr)])
+   (-> o (origin)))
+
+ (defn reader [] (-> [(r mut :addr)])
+   (-> r (sto read! temp)))
+
+ (defn checks [(c :bool)] (-> [])
+   (do (assert c)
+       (require (sto read! truth) "meh")))
+
+ (defn letting [(z :u256)] (-> [(r mut :u256)])
+   (let [bruh 15
+        y z]
+     (do (set! y 22)
+	  (-> r (+ bruh y)))))
+
+ (defn invoking [(z :u256)] (-> [(r mut :u256)])
+   (-> r (invoke! addi z z)))
+
+ (defn emitting [] (-> [])
+   (emit! Event []))
+
+ (defn transferring [(to :addr) (fake mut :bool)] (-> [])
+   (transfer* to (/ (callvalue) 2)))
+
+ (defn letComplex [] (-> [(r mut :u256)])
+   (let [c (+ (sto read! result) 5)]
+     (-> r c)))
+
+ (defn letCond [(input :u256)] (-> [(r mut :bool)])
+   (let [c (= (sto read! result) input)]
+     (-> r c)))
+
+ (defn ez [] (-> [])
+   (assert (= (sto read! truth) (sto read! truth))))
+
+ (defn onlyBuyer [] (-> [])
+   (assert (= (caller) (sto read! buyer))))
+
+ (defn whatif [(cond :bool)] (-> [])
+   (if cond
+       (sto write! result 228)
+       (revert "bad")))
+
+ (defn writting [] (-> [])
+   (invoke! transferring NUMBER false))
+ ]
+ })

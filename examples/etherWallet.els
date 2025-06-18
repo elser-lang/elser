@@ -1,8 +1,8 @@
-(ns etherWallet)
+(ns etherWallet (:pragma "0.8.29"))
 
 (constructor (sto write! owner (caller)))
 
-(storage {:external [(def owner [:addr])]})
+(storage {:external [(def owner [(o mut :addr)])]})
 
 (functions
  {:external
@@ -12,5 +12,7 @@
        (assert (= (caller) (sto read! owner)))
        (transfer* (caller) amount)))
 
-   (defn getBalance [] (-> [(b :u256)])
-     (-> b (balance (self))))]})
+   (defn getBalance [] (-> [(b mut :u256)])
+     (-> b (balance (self))))
+
+ ]})
