@@ -1,10 +1,10 @@
-(ns evmlisp.symtable
+(ns elser.symtable
   (:gen-class)
   (:import [org.web3j.crypto Hash]
            [org.web3j.utils Numeric])
   (:require [clojure.string :as string]
-            [evmlisp.errors :as errs]
-            [evmlisp.core :as core]))
+            [elser.errors :as errs]
+            [elser.core :as core]))
 
 (defn sig->fn-call
   [sig]
@@ -34,7 +34,7 @@
     (Numeric/toHexString selector-bytes)))
 
 (defn defn-to-signature
-  "Converts evmlisps's definitions to function signatures."
+  "Converts elsers's definitions to function signatures."
   [fn-name args]
   (format "%s(%s)" fn-name
           ;; Get all types of a function defintion.
@@ -44,7 +44,7 @@
 
 
 (defn def-to-signature
-  "Converts evmlisps's external storage definitions to function signatures."
+  "Converts elsers's external storage definitions to function signatures."
   [def-name sto-types]
   (format "%s(%s)" def-name
           (string/join ","
@@ -55,15 +55,16 @@
 (defn args-to-symbols
   "
   Produces {:name ... :type ...} map on
-  a given [(arg_0 :type) ... (arg_n :type)]
+  a given [(arg_0 [mut] :type) ... (arg_n [mut] :type)]
   "
   [args]
   (map-indexed (fn [i v]
-         (let [named? (= (mod (count v) 2) 0)
-               arg-name (if named? (nth v 0) (str "arg_" i))
-               arg-type (name (last v))]
+         (let [mutable? (some #{'mut} v)               
+               arg-name (nth v 0)
+               arg-type (last v)]
            {:name arg-name
-            :type arg-type}))
+            :type arg-type
+            :mutable? mutable?}))
          args))
 
 (defn sto-var-type
@@ -107,7 +108,7 @@
                                          :signature sig
                                          :fn-call sig
                                          :body val
-                                         :return (map name c-type)}]
+                                         :return (args-to-symbols c-type)}]
                             ;; Validate that name is capped.
                             (if (not (= (str c-name) (string/upper-case c-name)))
                               (errs/err-non-upper-case-const c-name)
@@ -122,11 +123,9 @@
                [:internal (:internal definitions)]]))))
 
 (defn process-events [events]
-  (println "events" (last events))
   (let [initial-state {:events []}
         definitions (last events)]
     (reduce (fn [state def-form]
-              (println "def-form" def-form)
               (let [[_ event-name args] def-form
                     sig (defn-to-signature event-name args)
                     var-def {:name event-name
@@ -134,7 +133,6 @@
                              :signature sig
                              :fn-call (sig->fn-call sig)
                              :args (args-to-symbols args)}]
-                (println "var-def" var-def)
                 (-> state
                     (update-in [:events] conj var-def))))
             initial-state
@@ -178,8 +176,8 @@
                               ;; Use custom slot if specified, otherwise allocate new.
                               custom-slot (when (map? (last opts)) (:slot (last opts)))
                               slot (or custom-slot (:slot-counter state))
-                              ret (map name (subvec sto-types
-                                                    (- (count sto-types) 1)))
+                              ret (args-to-symbols (subvec sto-types
+                                                           (- (count sto-types) 1)))
                               t (sto-var-type sto-types)
                               sto-types (if (:map t)
                                           (reduce
@@ -248,7 +246,8 @@
        ;; Namespace defintion.
        (= 'ns (first form))
        (do ((:symbol valid-nested-type?) form)
-           (assoc symbols :ns (second form)))
+           (assoc (assoc symbols :pragma (last (last form)))
+                  :ns (second form)))
 
        (= 'constructor (first form))
        (do ((:list valid-nested-type?) form)

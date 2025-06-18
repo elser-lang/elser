@@ -1,9 +1,9 @@
-(ns evmlisp.compiler
+(ns elser.compiler
   (:gen-class)
-  (:require [evmlisp.env :as env]
-            [evmlisp.symtable :as symtable]
-            [evmlisp.errors :as errs]
-            [evmlisp.env :as env]
+  (:require [elser.env :as env]
+            [elser.symtable :as symtable]
+            [elser.errors :as errs]
+            [elser.env :as env]
             [clojure.string :as string]
             [clojure.pprint :refer [pprint]]))
 
@@ -149,7 +149,7 @@
                        (compile (rest symbols) yul-env sto-env)
 
                        ;; 'loop' in Yul (loop [binds] (cond) (post-iter) (body))
-                       ;; in evmlisp (loop [binds] (cond) (body) (post-iter)).
+                       ;; in elser (loop [binds] (cond) (body) (post-iter)).
                        (= f 'loop)
                        (let [loop-env (env/env yul-env)
                              ;; Compile bindings like 'let'.
@@ -203,7 +203,7 @@
                              args (rest l')]
                          (apply f args))))))
 
-(declare evmlisp-args->yul-args)
+(declare elser-args->yul-args)
 
 (defn compile-calldataload-for-args [definition tabs]
   (if (empty? (:return definition))
@@ -237,7 +237,9 @@
   (let [var-type (:var-type definition)]
     (cond
       (:simple var-type)      
-      (format "          %s := sload(%s)\n" return-var (:slot definition))
+      (format "          %s := sload(%s)\n" (:name
+                                             (first
+                                              (:return definition))) (:slot definition))
 
       ;; TODO: handle maps and arrays.
       :else
@@ -264,7 +266,7 @@
         lines (string/split body #"\n")]
     body))
 
-(defn evmlisp-args->yul-args
+(defn elser-args->yul-args
   [args]
   (string/join
    ","  
@@ -273,7 +275,7 @@
       (conj whole
             (str (:name a)))) [] args)))
 
-(defn evmlisp-func-body->yul-func-body
+(defn elser-func-body->yul-func-body
   [definition yul-env sto-env def-type]
   (cond
     (contains? def-type :functions)
@@ -284,15 +286,16 @@
     (compile-storage-var-body definition yul-env)
 
     (contains? def-type :constants)
-    (format "          ret_val := %s\n" (:body definition))
+    (format "          %s := %s\n" (:name
+                                    (first
+                                     (:return definition))) (:body definition))
 
     (contains? def-type :events)
     (compile-event-body definition)))
 
-(defn evmlisp-ret->yul-ret [ret]
+(defn elser-ret->yul-ret [ret]
   (if (empty? ret)
-    ""
-    
+    ""    
     (format " -> %s"
             (string/join
              ", "
@@ -300,16 +303,16 @@
                             (:name r)
                             "ret_val")) ret)))))
 
-(defn evmlisp-func->yul-func
-  "Translates individual evmlisp function into a Yul function."
+(defn elser-func->yul-func
+  "Translates individual elser function into a Yul function."
   [definition yul-env sto-env def-type]
   (str
    "      function " (:name definition) "("
    ;; 1) Compile arguments + returns.
-   (evmlisp-args->yul-args (:args definition)) ")" (evmlisp-ret->yul-ret
+   (elser-args->yul-args (:args definition)) ")" (elser-ret->yul-ret
                                                     (:return definition)) "{\n"
    ;; 2) Compile function body.
-   (evmlisp-func-body->yul-func-body definition
+   (elser-func-body->yul-func-body definition
     (init-local-env yul-env definition)
     sto-env def-type)
    "      }\n"))
@@ -334,7 +337,7 @@
   [definitions yul-env sto-env def-type]
   (reduce (fn [full definition]
             (str full
-                 (evmlisp-func->yul-func
+                 (elser-func->yul-func
                   definition yul-env sto-env def-type))) "" definitions))
 
 (defn compile-to-yul

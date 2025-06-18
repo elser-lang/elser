@@ -1,7 +1,7 @@
-(ns evmlisp.reader
+(ns elser.reader
   (:gen-class)
   (:require [clojure.string :as string]
-            [evmlisp.errors :as errs]))
+            [elser.errors :as errs]))
 
 (def TOKENS-REGEX
   #"[\s,]*(~@|[\[\]{}()'`~^@]|\"(?:[\\].|[^\\\"])*\"?|;.*|[^\s\[\]{}()'\"`@,;]+)")

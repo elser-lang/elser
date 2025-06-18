@@ -1,11 +1,11 @@
-(ns evmlisp.evmcodegen
+(ns elser.evmcodegen
   (:gen-class)
   (:require [clojure.string :as string]
             [clojure.java.shell :as sh]
             [clojure.java.io :as io]))
 
 (defn compile-to-evm
-  [yul-code contract-name]
+  [yul-code contract-name pragma]
   (let [_ (.mkdirs (io/file "out"))
         
         yul-path (str "out/" contract-name ".yul")

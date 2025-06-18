@@ -1,6 +1,6 @@
-(ns evmlisp.env
+(ns elser.env
   (:gen-class)
-  (:require [evmlisp.errors :as errs]))
+  (:require [elser.errors :as errs]))
 
 (defn env [& [outer binds exp]]
   (atom (loop [env {:outer outer}
