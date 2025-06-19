@@ -1,3 +1,5 @@
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
 Elser is a domain-specific language (DSL) for smart-contract development. It emphasizes explicitness for critical and mutative operations and enforces a structured approach to smart-contract building. It compiles to EVM bytecode via Yul as an intermediate representation, leveraging `solc` for optimization and final bytecode generation.
 
 **ELSER** stands for ***E**xplicit **L**isp-like **S**mart-contract language with **E**nforced structure and **R**estrictness*.
