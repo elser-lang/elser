@@ -1,14 +1,14 @@
-(ns evmlisp.symtable-test
+(ns elser.symtable-test
   (:require [clojure.test :refer :all]
-            [evmlisp.main :refer :all]
-            [evmlisp.symtable :refer :all]))
+            [elser.main :refer :all]
+            [elser.symtable :refer :all]))
 
-(def valid-top-level "./test/evmlisp/test-progs/valid_top_level.evml")
+(def valid-top-level "./test/elser/test-progs/valid_top_level.evml")
 (defn invalid-top-level [i]
-  (format "./test/evmlisp/test-progs/invalid_top_level%s.evml" i))
+  (format "./test/elser/test-progs/invalid_top_level%s.evml" i))
 
 (deftest top-level-collect-symbols
-  (testing "Top level EVM Lisp's lists."
+  (testing "Top level elser lists."
     (let [code (slurp valid-top-level)
           ast (READ (str "(" code ")"))
           symbols (collect-symbols ast)]
