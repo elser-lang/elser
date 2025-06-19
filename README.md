@@ -65,6 +65,7 @@ Elser programs require **fixed program layout**:
 - All functions are grouped inside `(functions {})` block.
 - All constants are grouped inside `(constants {})` block.
 - All events are grouped inside `(events {})` block.
+
 This structure makes it trivial to navigate code and integrate IDE features.
 ```clj
 (ns <your-ns> (:pragma "0.8.30")) ;; Solc version
@@ -124,7 +125,7 @@ For instance, if `transfer` function applies fee to the amount and overwrites it
 
 #### Function Permissions
 Storage-access attribute `@sto{:w 0 :r 0}` can't be omitted, and should always explicitly specify allowed operations for the function:
-- `{:w  - permission to write to storage (1 - allowed, 0 - restricted).
+- `{:w }` - permission to write to storage (1 - allowed, 0 - restricted).
 - `{:r }` - permission to read from storage (1 - allowed, 0 - restricted).
 
 `function0 (f0)` can invoke `function1 (f1)` iff `f0{:w} >= f1{:w} && f0{:r} >= f1{:r}`
