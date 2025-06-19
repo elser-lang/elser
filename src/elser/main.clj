@@ -1,14 +1,15 @@
-(ns evmlisp.main
+(ns elser.main
   (:gen-class)
-  (:require [evmlisp.env :as env]
-            [evmlisp.reader :as reader]
-            [evmlisp.printer :as printer]
-            [evmlisp.errors :as errs]
-            [evmlisp.core :as core]
-            [evmlisp.symtable :as symtable]
-            [evmlisp.compiler :as compiler]
-            [evmlisp.evmcodegen :as evmcodegen]            
-            [evmlisp.cli :as cli]
+  (:require [elser.env :as env]
+            [elser.reader :as reader]
+            [elser.printer :as printer]
+            [elser.errors :as errs]
+            [elser.core :as core]
+            [elser.symtable :as symtable]
+            [elser.typecheck :as typecheck]
+            [elser.compiler :as compiler]
+            [elser.evmcodegen :as evmcodegen]            
+            [elser.cli :as cli]
             [clojure.repl :as clj-repl]
             [clojure.pprint :refer [pprint]]))
 
@@ -17,6 +18,8 @@
 (def yul-env (env/env))
 (doseq [[k v] core/yul-ns] (env/eset yul-env k v))
 
+(def types-env (env/env))
+(doseq [[k v] core/types-ns] (env/eset types-env k v))
 
 (defn READ
   [inp]
@@ -58,8 +61,9 @@
 
       (:compile options)
       (let [symbols (symtable/collect-symbols ast)
+            _ (typecheck/check-types symbols types-env)
             yul (compiler/symtable-to-yul symbols yul-env core/sto-ns)]
-        (do (evmcodegen/compile-to-evm yul (:ns symbols))
+        (do (evmcodegen/compile-to-evm yul (:ns symbols) (:pragma symbols))
             (println "EVM bytecode was successfully generated.")))))
   (System/exit 0))
   

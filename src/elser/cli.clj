@@ -1,4 +1,4 @@
-(ns evmlisp.cli
+(ns elser.cli
   (:gen-class)
   (:require [clojure.tools.cli :refer [parse-opts]]
             [clojure.string :as string]))
@@ -7,7 +7,7 @@
   [["-c" "--compile" "Compile to EVM bytecode."]
    ["-a" "--ast" "Show the AST."]
    ["-y" "--yul" "Compile to Yul."]   
-   ["-s" "--symtable" "Show symbol-table generated from evmlisp."]
+   ["-s" "--symtable" "Show symbol-table generated from elser."]
    ["-h" "--help" "Show help message."]])
 
 (defn usage [options-summary]

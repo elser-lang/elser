@@ -1,0 +1,10 @@
+(ns constr (:pragma "0.8.29"))
+
+(constructor
+ (do (sto write! x 5)
+     (sto write! y 12)))
+
+(storage
+ {:external
+  [(def x [(ret :u256)])
+   (def y [(ret :u256)])]})

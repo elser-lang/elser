@@ -1,13 +1,13 @@
-(ns factorial)
+(ns factorial (:pragma "0.8.29"))
 
 (functions
  {:external
-  [
-   (defn factorial [(n :i256)] (-> [(f :i256)])
-     (let [fact 1]
-       (loop [k n] (while (> k 1))
-             (set! fact (* k fact))
-             (do
-              (set! k (- k 1))))
-       (-> f fact)))
-   ]})
+ [
+ (defn factorial [(n :u256)] @sto{:w 0 :r 0} (-> [(f mut :u256)])
+   (let [fact 1]
+     (loop [k n] (while (> k 1))
+		 (set! fact (* k fact))
+		 (do
+		  (set! k (- k 1))))
+     (-> f fact)))
+ ]})
