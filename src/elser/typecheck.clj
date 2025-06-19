@@ -8,19 +8,19 @@
 
 (declare typecheck)
 (defn typecheck-symbols
-  [symbols types-env]
+  [symbols types-env permissions]
   (cond
     (symbol? symbols) (env/eget types-env symbols)
     
     (map? symbols) (let [k (keys symbols)
-                         v (doall (map (fn [x] (typecheck x types-env))
+                         v (doall (map (fn [x] (typecheck x types-env permissions))
                                        (vals symbols)))]
                      (zipmap k v))
     
-    (seq? symbols) (mapv (fn [x] (typecheck x types-env))
+    (seq? symbols) (mapv (fn [x] (typecheck x types-env permissions))
                          symbols)
     
-    (vector? symbols) (mapv (fn [x] (typecheck x types-env))
+    (vector? symbols) (mapv (fn [x] (typecheck x types-env permissions))
                             symbols)
     
     :else {:type (types/infer-type symbols) :mutable? 'mut}))
@@ -28,12 +28,12 @@
 ;; FIX: this is basically evaluation function (like `compile`).
 ;;      Thus, it's needed to utilize existing one.
 (defn typecheck
-  [symbols types-env]
+  [symbols types-env permissions]
   (cond
     ;; TODO: what to do wtih this case?
     (nil? symbols) symbols
     
-    (not (seq? symbols)) (typecheck-symbols symbols types-env)
+    (not (seq? symbols)) (typecheck-symbols symbols types-env permissions)
     
     (empty? symbols) '()
     
@@ -44,10 +44,10 @@
                              local-defs (partition 2 (first (rest symbols)))]
                          (doseq [[a b] local-defs]
                            (env/eset let-env a
-                                     (assoc (typecheck b types-env)
+                                     (assoc (typecheck b types-env permissions)
                                             :mutable? 'mut)))
                          (mapv (fn [i] (typecheck (nth symbols i)
-                                               let-env))
+                                               let-env permissions))
                                (range 2 (count symbols))))
 
                        (= f 'loop)
@@ -57,12 +57,12 @@
                              slt (assoc (vec symbols) 0 'let)]
                          (doseq [[a b] (partition 2 (first (rest symbols)))]
                            (env/eset loop-env a
-                                     (assoc (typecheck b types-env)
+                                     (assoc (typecheck b types-env permissions)
                                             :mutable? 'mut)))
                          (do 
-                           (typecheck (second cnd) loop-env)
-                           (typecheck post-iter loop-env)
-                           (typecheck body loop-env)))
+                           (typecheck (second cnd) loop-env permissions)
+                           (typecheck post-iter loop-env permissions)
+                           (typecheck body loop-env permissions)))
                        
                        ;; 'do' - evaluate all the elements of the list
                        ;; and return the final evaluated element.
@@ -71,29 +71,47 @@
                                     (fn [sym]
                                       (typecheck
                                        sym
-                                       types-env))
+                                       types-env
+                                       permissions))
                                     (rest symbols))
                              l (- (count exprs) 1)
                              last-expr (get exprs l)])
 
                        (= f 'invoke!)
-                       (:type
-                        (first
-                         (:return (typecheck (first (rest symbols)) types-env))))
+                       ;; Check if invoked function contains
+                       ;; permissions required by the function.
+                       (let [p (:permissions
+                                (env/eget types-env (first (rest symbols))))]
+                         (do (if (not (and (>= (:w permissions) (:w p))
+                                           (>= (:r permissions) (:r p))))
+                               (errs/err-invalid-permissions
+                                (first (rest symbols)) permissions p))
+                               (:type
+                              (first
+                               (:return (typecheck (first (rest symbols))
+                                                   types-env permissions))))))
 
                        (= f 'sto)
                        (let [op (second symbols)
                              sto-var (nth symbols 2)]
                          (cond
                            (= op 'write!)
-                           (typecheck (last symbols) types-env)
+                           (do (if (= (:w permissions) 0)
+                                 (errs/err-invalid-permissions
+                                  symbols
+                                  permissions '{:w 1}))
+                               (typecheck (last symbols) types-env permissions))
 
                            (= op 'read!)
-                           (first
-                            (:return (typecheck (last symbols) types-env)))))
+                           (do (if (= (:r permissions) 0)
+                                 (errs/err-invalid-permissions
+                                  symbols
+                                  permissions '{:r 1}))
+                               (first
+                                (:return (typecheck (last symbols) types-env permissions))))))
                        
                        :else
-                       (let [l' (typecheck-symbols symbols types-env)
+                       (let [l' (typecheck-symbols symbols types-env permissions)
                              f (first l')
                              args (rest l')]
                          (apply f args))))))
@@ -113,7 +131,8 @@
                                               (conj full
                                                     [(:name x)
                                                      {:args (:args x)
-                                                      :return (:return x)}
+                                                      :return (:return x)
+                                                      :permissions (:permissions x)}
                                                      ])) [] definitions)]
         (doseq [[k v] type-defs] (env/eset env-w-types k v))
         env-w-types))
@@ -134,13 +153,15 @@
 (defn typecheck-funcs [symbols types-env]
   (let [fns (into (:external (:functions symbols))
                   (:internal (:functions symbols)))
-        bodies (reduce (fn [full f] (conj full (:body f))) [] fns)]
+        bodies (reduce (fn [full f] (conj full (:body f))) [] fns)
+        permissions (reduce (fn [full f] (conj full (:permissions f))) [] fns)]
     (loop [f fns
-           b bodies]
-      (if (= (count f) 0)
-        (let [local-types-env (init-local-types-env types-env (first f))]
-        (do (typecheck (first b) local-types-env)
-            (recur (rest f) (rest b))))))))
+           b bodies
+           p permissions]
+      (if (= (count f) 0) nil ; we're done!
+          (let [local-types-env (init-local-types-env types-env (first f))]
+            (do (typecheck (first b) local-types-env (first p))
+                (recur (rest f) (rest b) (rest p))))))))
 
 (defn check-types
   [symbols types-env]

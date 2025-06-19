@@ -73,3 +73,10 @@
 
 (defn err-invalid-def-key [h w]
   (throw (Exception. (format "elser: invalid variable definition: have %s | want %s" h w))))
+
+(defn err-invalid-permission-value [h w]
+  (throw (Exception. (format "elser: invalid permission value: have %s | want %s" h w))))
+
+(defn err-invalid-permissions [f h w]
+  (throw (Exception. (format "elser: invalid permissions: fn %s | have %s | want %s"
+                             f h w))))

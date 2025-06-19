@@ -144,16 +144,24 @@
                          {:external [] :internal []}}]
       (reduce (fn [state [visibility defs]]
                 (reduce (fn [state def-form]
-                          (let [[fn-type fn-name args ret body] def-form
+                          (let [[fn-type fn-name args access ret body] def-form
+                                write (:w (first access))
+                                read (:r (first access))
                                 sig (defn-to-signature fn-name args)
                                 var-def {:name fn-name
                                          :selector (obtain-selector sig)
                                          :signature sig
+                                         :permissions (first access)
                                          :fn-call (sig->fn-call sig)
                                          :args (args-to-symbols args)
                                          :fn-type (function-type fn-type)
                                          :body body
                                          :return (args-to-symbols (second ret))}]
+                            (if (not (or (= write 0) (= write 1)))
+                              (errs/err-invalid-permission-value write [0 1]))
+                            (if (not (or (= read 0) (= read 1)))
+                              (errs/err-invalid-permission-value read [0 1]))
+                            
                             (-> state
                                 (update-in [:functions visibility] conj var-def))))
                         state
