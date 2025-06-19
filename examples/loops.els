@@ -3,7 +3,7 @@
 (functions
  {:external
  [
- (defn factorial [(n :u256)] (-> [(f mut :u256)])
+ (defn factorial [(n :u256)] @sto{:w 0 :r 0} (-> [(f mut :u256)])
    (let [fact 1]
      (loop [k n] (while (> k 1))
 		 (set! fact (* k fact))

@@ -7,14 +7,14 @@
 (functions
  {:external
   [
-   (defn get [] (-> [(c mut :u256)])
+   (defn get [] @sto{:w 0 :r 1} (-> [(c mut :u256)])
      (-> c (sto read! count)))
 
-   (defn inc [] (-> [])
+   (defn inc [] @sto{:w 1 :r 1} (-> [])
      (let [c (sto read! count)]
        (sto write! count (+ c 1))))
 
-   (defn dec [] (-> [])
+   (defn dec [] @sto{:w 1 :r 1} (-> [])
      (let [c (sto read! count)]
        (sto write! count (- c 1))))
    ]})

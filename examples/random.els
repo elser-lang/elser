@@ -21,63 +21,63 @@
 (functions
  {:external [
 
- (defn addi [(x :u256) (y :u256)] (-> [(f mut :u256)])
+ (defn addi [(x :u256) (y :u256)] @sto{:w 0 :r 0} (-> [(f mut :u256)])
    (-> f (+ x y)))
 
- (defn divi [(x :u256) (y :u256)] (-> [(f mut :u256)])
+ (defn divi [(x :u256) (y :u256)] @sto{:w 0 :r 0} (-> [(f mut :u256)])
    (-> f (/ x y)))
 
- (defn msgSender [] (-> [(s mut :addr)])
+ (defn msgSender [] @sto{:w 0 :r 0} (-> [(s mut :addr)])
    (-> s (caller)))
 
- (defn msgValue [] (-> [(s mut :u256)])
+ (defn msgValue [] @sto{:w 0 :r 0} (-> [(s mut :u256)])
    (-> s (callvalue)))
 
- (defn txOrigin [] (-> [(o mut :addr)])
+ (defn txOrigin [] @sto{:w 0 :r 0} (-> [(o mut :addr)])
    (-> o (origin)))
 
- (defn reader [] (-> [(r mut :addr)])
+ (defn reader [] @sto{:w 0 :r 1} (-> [(r mut :addr)])
    (-> r (sto read! temp)))
 
- (defn checks [(c :bool)] (-> [])
+ (defn checks [(c :bool)] @sto{:w 0 :r 1} (-> [])
    (do (assert c)
        (require (sto read! truth) "meh")))
 
- (defn letting [(z :u256)] (-> [(r mut :u256)])
+ (defn letting [(z :u256)] @sto{:w 0 :r 0} (-> [(r mut :u256)])
    (let [bruh 15
         y z]
      (do (set! y 22)
 	  (-> r (+ bruh y)))))
 
- (defn invoking [(z :u256)] (-> [(r mut :u256)])
+ (defn invoking [(z :u256)] @sto{:w 0 :r 0} (-> [(r mut :u256)])
    (-> r (invoke! addi z z)))
 
- (defn emitting [] (-> [])
+ (defn emitting [] @sto{:w 0 :r 0} (-> [])
    (emit! Event []))
 
- (defn transferring [(to :addr) (fake mut :bool)] (-> [])
+ (defn transferring [(to :addr) (fake mut :bool)] @sto{:w 0 :r 0} (-> [])
    (transfer* to (/ (callvalue) 2)))
 
- (defn letComplex [] (-> [(r mut :u256)])
+ (defn letComplex [] @sto{:w 0 :r 1} (-> [(r mut :u256)])
    (let [c (+ (sto read! result) 5)]
      (-> r c)))
 
- (defn letCond [(input :u256)] (-> [(r mut :bool)])
+ (defn letCond [(input :u256)] @sto{:w 0 :r 1} (-> [(r mut :bool)])
    (let [c (= (sto read! result) input)]
      (-> r c)))
 
- (defn ez [] (-> [])
+ (defn ez [] @sto{:w 0 :r 1} (-> [])
    (assert (= (sto read! truth) (sto read! truth))))
 
- (defn onlyBuyer [] (-> [])
+ (defn onlyBuyer [] @sto{:w 0 :r 1} (-> [])
    (assert (= (caller) (sto read! buyer))))
 
- (defn whatif [(cond :bool)] (-> [])
+ (defn whatif [(cond :bool)] @sto{:w 1 :r 0} (-> [])
    (if cond
        (sto write! result 228)
        (revert "bad")))
 
- (defn writting [] (-> [])
+ (defn writting [] @sto{:w 1 :r 0} (-> [])
    (invoke! transferring NUMBER false))
  ]
  })

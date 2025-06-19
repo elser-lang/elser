@@ -37,7 +37,7 @@
    ;; Abort the purchase and reclaim the ether.
    ;; Can only be called by the seller before
    ;; the contract is locked.   
-   (defn abort [] (-> [])
+   (defn abort [] @sto{:w 1 :r 1} (-> [])
      (do (invoke! inState STATE_CREATED)
          (invoke! onlySeller)
        (emit! Aborted [])
@@ -50,7 +50,7 @@
    ;; Transaction has to include `2 * value` ether.
    ;; The ether will be locked until confirmReceived
    ;; is called.
-   (defn confirmPurchase [] (-> [])
+   (defn confirmPurchase [] @sto{:w 1 :r 1} (-> [])
      (do (invoke! inState STATE_CREATED)
          (let [c (= (callvalue) (* 2 (sto read! value)))]
            (invoke! condition c))
@@ -60,7 +60,7 @@
 
    ;; Confirm that you (the buyer) received the item.
    ;; This will release the locked ether.
-   (defn confirmReceived [] (-> [])
+   (defn confirmReceived [] @sto{:w 1 :r 1} (-> [])
      (do (invoke! inState STATE_LOCKED)
          (invoke! onlyBuyer)
        (emit! ItemReceived [])
@@ -71,7 +71,7 @@
 
    ;; This function refunds the seller, i.e.
    ;; pays back the locked funds of the seller.
-   (defn refundSeller [] (-> [])
+   (defn refundSeller [] @sto{:w 1 :r 1} (-> [])
      (do (invoke! inState STATE_RELEASE)
          (invoke! onlyBuyer)
        (emit! SellerRefunded [])
@@ -83,14 +83,14 @@
   
   :internal
   [
-   (defn condition [(c :bool)] (-> [])
+   (defn condition [(c :bool)] @sto{:w 0 :r 0} (-> [])
      (require c "bad cond"))
    
-   (defn onlyBuyer [] (-> [])
+   (defn onlyBuyer [] @sto{:w 0 :r 1} (-> [])
      (assert (= (caller) (sto read! buyer))))
 
-   (defn onlySeller [] (-> [])
+   (defn onlySeller [] @sto{:w 0 :r 1} (-> [])
      (assert (= (caller) (sto read! seller))))
 
-   (defn inState [(state_ :u256)] (-> [])
+   (defn inState [(state_ :u256)] @sto{:w 0 :r 1} (-> [])
      (assert (= state_ (sto read! state))))]})

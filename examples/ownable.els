@@ -8,13 +8,15 @@
   (def OwnershipTransferred [(prevOwner :addr) (newOwner :addr)])])
 
 (constants
- {:internal
+ {
+ :internal
  [
  (def ADDRESS_ZERO [(x :addr)] "0x0000000000000000000000000000000000000000")
  ]})
 
 (storage
- {:external
+ {
+ :external
   [
    (def owner [(x mut :addr)])
    ]})
@@ -22,13 +24,13 @@
 (functions
  {:external
   [
-   (defn transferOwnership [(newOwner :addr)] (-> [])
+   (defn transferOwnership [(newOwner mut :addr)] @sto{:w 1 :r 1} (-> [])
      (do
        (invoke! _checkOwner)
        (assert (!= newOwner ADDRESS_ZERO))
        (invoke! _transferOwnership newOwner)))
    
-   (defn renounceOwnership [] (-> [])
+   (defn renounceOwnership [] @sto{:w 1 :r 1} (-> [])
      (do (invoke! _checkOwner)
          (invoke! _transferOwnership ADDRESS_ZERO)))
    ]
@@ -36,10 +38,10 @@
   :internal
   [
    ;; Throws if the sender is not the owner.
-   (defn _checkOwner [] (-> [])
+   (defn _checkOwner [] @sto{:w 0 :r 1} (-> [])
      (assert (= (caller) (sto read! owner))))
 
-   (defn _transferOwnership [(newOwner :addr)] (-> [])
+   (defn _transferOwnership [(newOwner :addr)] @sto{:w 1 :r 1} (-> [])
      (let [oldOwner (sto read! owner)]
        (do
          (sto write! owner newOwner)

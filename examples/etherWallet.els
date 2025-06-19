@@ -7,12 +7,12 @@
 (functions
  {:external
   [
-   (defn withdraw [(amount :u256)] (-> [])
+   (defn withdraw [(amount :u256)] @sto{:w 0 :r 1} (-> [])
      (do
        (assert (= (caller) (sto read! owner)))
        (transfer* (caller) amount)))
 
-   (defn getBalance [] (-> [(b mut :u256)])
+   (defn getBalance [] @sto{:w 0 :r 0} (-> [(b mut :u256)])
      (-> b (balance (self))))
 
  ]})
