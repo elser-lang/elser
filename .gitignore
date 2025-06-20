@@ -1,3 +1,4 @@
 /target
 *.org
 /out
+.DS_Store
