@@ -1,0 +1,18 @@
+;; Vesting Wallet for ETH.
+(ns vestingWallet (:pragma "0.8.29"))
+
+(storage
+ {:external [
+ (def y [(r :u256)])
+ ]})
+
+(functions
+ {:external [
+ (defn releasable [] @sto{:w 0 :r 1} (-> [(r mut :u256)])
+   (-> r (- (invoke! x (timestamp))
+	    (sto read! y))))
+
+ (defn x [(t :u256)] @sto{:w 0 :r 0} (-> [(r mut :u256)])
+   (-> r t))
+
+ ]})

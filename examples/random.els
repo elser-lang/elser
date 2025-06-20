@@ -41,7 +41,7 @@
 
  (defn checks [(c :bool)] @sto{:w 0 :r 1} (-> [])
    (do (assert c)
-       (require (sto read! truth) "meh")))
+       (require (sto read! truth) 404)))
 
  (defn letting [(z :u256)] @sto{:w 0 :r 0} (-> [(r mut :u256)])
    (let [bruh 15
@@ -75,7 +75,7 @@
  (defn whatif [(cond :bool)] @sto{:w 1 :r 0} (-> [])
    (if cond
        (sto write! result 228)
-       (revert "bad")))
+       (revert 404)))
 
  (defn writting [] @sto{:w 1 :r 0} (-> [])
    (invoke! transferring NUMBER false))

@@ -1,0 +1,62 @@
+;; Vesting Wallet for ETH.
+(ns vestingWallet (:pragma "0.8.29"))
+
+(constructor
+ (let [duration 3600]
+   (do
+    (sto write! owner (caller))
+    (sto write! start (timestamp))
+     (sto write! duration duration))))
+
+(storage
+ {:external [
+ ;; Owner of the Vesting Wallet
+ (def owner [(r :addr)])
+
+ (def released [(r :u256)])
+ 
+ (def start [(s :u256)])
+ (def duration [(s :u256)])
+ ]})
+
+(events [ (def EtherReleased [(amount :u256)]) ])
+
+(functions
+ {:external [
+ ;; Getter for the end timestamp.
+ (defn end [] @sto{:w 0 :r 1} (-> [(e mut :u256)])
+   (-> e (+ (sto read! start)
+	    (sto read! duration))))
+
+ (defn releasable [] @sto{:w 0 :r 1} (-> [(r mut :u256)])
+   (-> r (- (invoke! vestedAmount (timestamp))
+	    (sto read! released))))
+
+ (defn release [] @sto{:w 1 :r 1} (-> [])
+   (let [amount (invoke! releasable)
+     released_ (sto read! released)]
+     (do
+      (sto write! released (+ released_ amount))
+      (emit! EtherReleased [amount])
+       (transfer* (sto read! owner) amount))))
+
+ (defn vestedAmount [(time :u256)]
+   @sto{:w 0 :r 1} (-> [(a mut :u256)])
+   (-> a (invoke! vestingSchedule (+ (balance (self))
+				     (sto read! released)) time)))
+ ]
+
+ :internal [
+ ;; Virtual implementation of the vesting formula.
+ ;; This returns the amount vested, as a function of
+ ;; time, for an asset given its total historical allocation.
+ (defn vestingSchedule [(totalAlloc :u256) (time :u256)] @sto{:w 0 :r 1} (-> [(s mut :u256)])
+   (let [start_ (sto read! start)]
+	 (-> s 0)	 
+	 (if (>= time (invoke! end))
+	     (-> s totalAlloc)
+	     
+	     (-> s (/ (* totalAlloc (- time start_))
+		      (sto read! duration))))))
+ 
+ ]})
