@@ -6,7 +6,7 @@
 (def cli-options
   [["-c" "--compile" "Compile to EVM bytecode."]
    ["-a" "--ast" "Show the AST."]
-   ["-y" "--yul" "Compile to Yul."]   
+   ["-y" "--yul" "Compile to Yul."]
    ["-s" "--symtable" "Show symbol-table generated from elser."]
    ["-h" "--help" "Show help message."]])
 

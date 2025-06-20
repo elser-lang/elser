@@ -19,13 +19,3 @@
       (is (contains? symbols :storage))
       (is (contains? symbols :functions))
       )))
-
-(deftest top-level-invalid-symbols
-  (testing "Top level EVM Lisp's lists."
-    (loop [i 5]
-      (when-not (= i 0)
-        (let [code (slurp (invalid-top-level i))
-              ast (READ (str "(" code ")"))
-              symbols (collect-symbols ast)]
-          (println "symbols" symbols))
-        (recur (- i 1))))))
