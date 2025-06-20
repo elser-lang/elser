@@ -70,23 +70,23 @@
 
 (def types-ns
   [
-   ['+ (fn [x y] (types/type-check-numeric x y (:type x)))]
-   ['* (fn [x y] (types/type-check-numeric x y (:type x)))]
-   ['- (fn [x y] (types/type-check-numeric x y (:type x)))]
-   ['/ (fn [x y] (types/type-check-numeric x y (:type x)))]
-   ['mod (fn [x y] (types/type-check-numeric x y (:type x)))]
-   ['exp (fn [x y] (types/type-check-numeric x y (:type x)))]
+   ['+ (fn [x y] (types/type-check-numeric x y nil))]
+   ['* (fn [x y] (types/type-check-numeric x y nil))]
+   ['- (fn [x y] (types/type-check-numeric x y nil))]
+   ['/ (fn [x y] (types/type-check-numeric x y nil))]
+   ['mod (fn [x y] (types/type-check-numeric x y nil))]
+   ['exp (fn [x y] (types/type-check-numeric x y nil))]
 
-   ['= (fn [x y] (types/type-check-all x y ':bool))]
-   ['!= (fn [x y] (types/type-check-all x y ':bool))]
-   ['> (fn [x y] (types/type-check-all x y ':bool))]
-   ['>= (fn [x y] (types/type-check-all x y ':bool))]
-   ['< (fn [x y] (types/type-check-all x y ':bool))]
-   ['<= (fn [x y] (types/type-check-all x y ':bool))]
+   ['= (fn [x y] (types/type-check-all x y {:type :bool}))]
+   ['!= (fn [x y] (types/type-check-all x y {:type :bool}))]
+   ['> (fn [x y] (types/type-check-all x y {:type :bool}))]
+   ['>= (fn [x y] (types/type-check-all x y {:type :bool}))]
+   ['< (fn [x y] (types/type-check-all x y {:type :bool}))]
+   ['<= (fn [x y] (types/type-check-all x y {:type :bool}))]
    
-   ['and (fn [x y] (types/type-check-bool x y ':bool))]
-   ['or (fn [x y] (types/type-check-bool x y ':bool))]
-   ['not (fn [x] (types/type-check-bool-unary x ':bool))]
+   ['and (fn [x y] (types/type-check-bool x y {:type :bool}))]
+   ['or (fn [x y] (types/type-check-bool x y {:type :bool}))]
+   ['not (fn [x] (types/type-check-bool-unary x {:type :bool}))]
 
    ['caller (fn [] {:type ':addr :mutable? nil})]
    ['callvalue (fn [] {:type ':u256 :mutable? nil})]
@@ -95,19 +95,22 @@
    ['balance (fn [a] {:type ':u256 :mutable? nil})]
    ['timestamp (fn [] {:type ':u256 :mutable? nil})]
 
-   ['assert (fn [x] (types/type-check-bool-unary x ':bool))]
-   ['require (fn [c msg] (types/type-check-bool-unary c ':bool))]
+   ['assert (fn [x] (types/type-check-bool-unary x {:type :bool}))]
+   ['require (fn [c msg] (types/type-check-bool-unary c {:type :bool}))]
    
-   ;; fix: messages aren't displayed yet.
    ['revert (fn [msg] {:type nil})]
    ['emit! (fn [func & args] nil)]
    ['transfer* (fn [to val] (do (types/type-check-addr to)
                                (types/type-check-numeric-unary val)))]
 
    ;; TODO: doesn't check true/false branches.
-   ['if (fn [pred true-body false-body] (types/type-check-bool-unary pred ':bool))]
+   ['if (fn [pred true-body false-body]
+          (types/type-check-bool-unary pred {:type :bool}))]
    
-   ['set! (fn [bind expr] (types/type-check-assign {:type bind} expr))]
-   ['invoke! (fn [func args] (apply func args))]
-   ['-> (fn [top local] (types/type-check-assign {:type top} local))]
+   ['set! (fn [bind expr] (types/type-check-assign bind expr))]
+   ['invoke! (fn [func args] (types/type-check-op
+                             (mapv conj (:args func))
+                             (mapv conj args)
+                             ))]
+   ['-> (fn [top local] (types/type-check-assign top local))]
    ])

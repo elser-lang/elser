@@ -45,10 +45,7 @@
                          (doseq [[a b] local-defs]
                            (env/eset let-env a
                                      (assoc (typecheck b types-env permissions)
-                                            :mutable? 'mut)))
-                         (mapv (fn [i] (typecheck (nth symbols i)
-                                               let-env permissions))
-                               (range 2 (count symbols))))
+                                            :mutable? 'mut))))
 
                        (= f 'loop)
                        (let [loop-env (env/env types-env)
@@ -64,8 +61,7 @@
                            (typecheck post-iter loop-env permissions)
                            (typecheck body loop-env permissions)))
                        
-                       ;; 'do' - evaluate all the elements of the list
-                       ;; and return the final evaluated element.
+                       ;; 'do' - evaluate all the elements of the list.
                        (= f 'do)
                        (let [exprs (mapv
                                     (fn [sym]
@@ -82,19 +78,22 @@
                        ;; permissions required by the function.
                        (let [p (:permissions
                                 (env/eget types-env (first (rest symbols))))]
-                         (do (if (not (and (>= (:w permissions) (:w p))
-                                           (>= (:r permissions) (:r p))))
-                               (errs/err-invalid-permissions
-                                (first (rest symbols)) permissions p))
-                               (:type
-                              (first
-                               (:return (typecheck (first (rest symbols))
-                                                   types-env permissions))))))
+                         ;; TODO: check type for 
+                         (do
+                           (if (not (and (>= (:w permissions) (:w p))
+                                         (>= (:r permissions) (:r p))))
+                             (errs/err-invalid-permissions
+                              (first (rest symbols)) permissions p))
+
+                           ;; Evaluate function to its return.
+                           (:type (typecheck (first (rest symbols))
+                                               types-env permissions))))
 
                        (= f 'sto)
                        (let [op (second symbols)
                              sto-var (nth symbols 2)]
                          (cond
+                           ;; FIX: this thing doesn't check types for parameters.
                            (= op 'write!)
                            (do (if (= (:w permissions) 0)
                                  (errs/err-invalid-permissions
@@ -103,18 +102,24 @@
                                (typecheck (last symbols) types-env permissions))
 
                            (= op 'read!)
-                           (do (if (= (:r permissions) 0)
-                                 (errs/err-invalid-permissions
-                                  symbols
-                                  permissions '{:r 1}))
-                               (first
-                                (:return (typecheck (last symbols) types-env permissions))))))
+                           (do
+                             (if (= (:r permissions) 0)
+                               (errs/err-invalid-permissions
+                                symbols
+                                permissions '{:r 1}))                             
+                             (:type (typecheck (last symbols) types-env permissions)))))
                        
                        :else
                        (let [l' (typecheck-symbols symbols types-env permissions)
                              f (first l')
                              args (rest l')]
-                         (apply f args))))))
+                         ;; Remove nested types.
+                         (apply f
+                                (mapv
+                                 (fn [a] (if (:type (:type a))
+                                          (:type a)
+                                          a)) args)))
+                       ))))
 
 (defn add-types-to-env
   [symbols types-env]
@@ -127,17 +132,20 @@
                                             (:internal (:storage symbols)))
                                       (into (:external (:functions symbols))
                                             (:internal (:functions symbols))))))
-                          type-defs (reduce (fn [full x]
-                                              (conj full
-                                                    [(:name x)
-                                                     {:args (:args x)
-                                                      :return (:return x)
-                                                      :permissions (:permissions x)}
-                                                     ])) [] definitions)]
-        (doseq [[k v] type-defs] (env/eset env-w-types k v))
-        env-w-types))
+        type-defs (reduce (fn [full x]
+                            (conj full
+                                  [(:name x)
+                                   {:args (:args x)
+                                    ;; Type of the function is its return.
+                                    ;; FIX: only 1-return is supported.
+                                    :type (first (:return x))
+                                    :permissions (:permissions x)}
+                                   ])) [] definitions)]
+    (doseq [[k v] type-defs] (env/eset env-w-types k v))
+    env-w-types))
 
 (defn init-local-types-env
+  "Add parameters & return variables to the env."
   [types-env definition]
   (let [local-types-env (env/env types-env)]
     (doseq [[k v]
@@ -146,7 +154,7 @@
                                  [(:name x) {:type (:type x)
                                              :mutable? (:mutable? x)}]
                                  ))
-                    [] (into (:return definition) (:args definition)))
+                    [] (into (:args definition) (:return definition)))
             ] (env/eset local-types-env k v))
     local-types-env))
 
@@ -165,6 +173,6 @@
 
 (defn check-types
   [symbols types-env]
-    (typecheck-funcs
-     symbols
-     (add-types-to-env symbols types-env)))
+  (typecheck-funcs
+   symbols
+   (add-types-to-env symbols types-env)))

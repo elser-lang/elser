@@ -80,3 +80,6 @@
 (defn err-invalid-permissions [f h w]
   (throw (Exception. (format "elser: invalid permissions: fn %s | have %s | want %s"
                              f h w))))
+
+(defn err-diff-types-comp [x y]
+  (throw (Exception. (format "elser: comparing diff types: x %s | y %s" x y))))
