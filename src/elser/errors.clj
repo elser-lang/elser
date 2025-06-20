@@ -81,5 +81,8 @@
   (throw (Exception. (format "elser: invalid permissions: fn %s | have %s | want %s"
                              f h w))))
 
+(defn err-sto-access-non-int [a]
+  (throw (Exception. (format "elser: invalid type for @sto access valie: %s" a))))
+
 (defn err-diff-types-comp [x y]
   (throw (Exception. (format "elser: comparing diff types: x %s | y %s" x y))))
