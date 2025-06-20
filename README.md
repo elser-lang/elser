@@ -161,7 +161,19 @@ Attempting to call a level‑2 function from a level‑0 or level‑1 function r
 ;; > elser: invalid permissions: fn emergencyWithdraw | have {:r 1, :w 0} | want {:r 1, :w 2}
 (defn withdraw [(amount :u256)] @sto{:w 0 :r 1} (-> []) 
   (invoke! emergencyWithdraw))
-``` 
+```
+
+The multi-level privilege relations can be represented via such diagram:
+```mermaid
+flowchart TD
+    A(["emergencyWithdraw"]) <--> B(["pause"])
+    A --> n1(["withdraw"])
+    B --> n1
+    n1 --x B & A
+    style A fill:#C8E6C9
+    style B fill:#C8E6C9
+    style n1 fill:#BBDEFB
+```
 
 #### Function Returns
 Return parameters are also immutable by default, and should be explicitly marked as `mut` to map values to them. All functions should include return syntax, even if they don't return anything:
