@@ -1,9 +1,8 @@
 (ns math (:pragma "0.8.29"))
 
 (storage
- {:internal [
- 
- (def result [(x mut :u256)])
+ {:internal [ 
+ (def result [(x :u256)])
  (def truth [(t :bool)])
  (def temp [(t :addr)])
  (def buyer [(t :addr)])

@@ -11,10 +11,10 @@
 (storage
  {:external
  [
- (def value [(v mut :u256)])
- (def seller [(s mut :addr)])
- (def buyer [(b mut :addr)])
- (def state [(s mut :u256)])]})
+ (def value [(v :u256)])
+ (def seller [(s :addr)])
+ (def buyer [(b :addr)])
+ (def state [(s :u256)])]})
 
 (events
  [
