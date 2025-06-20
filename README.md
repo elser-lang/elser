@@ -64,7 +64,7 @@ Elser programs require **fixed program layout**:
 - All storage variables are grouped inside `(storage {})` block.
 - All functions are grouped inside `(functions {})` block.
 - All constants are grouped inside `(constants {})` block.
-- All events are grouped inside `(events {})` block.
+- All events are grouped inside `(events [])` block.
 
 This structure makes it trivial to navigate code and integrate IDE features.
 ```clj
@@ -118,7 +118,7 @@ For instance, if `transfer` function applies fee to the amount and overwrites it
 ```clj
 (defn transfer [(to :addr) (amount mut :u256)] @sto{:w 1 :r 1} (-> [(ok mut :bool)])
   (do (...)
-      (set! amount (feeOnTransfer amount))
+      (set! amount (invoke! feeOnTransfer amount))
       (...)))
 
 ```
@@ -195,7 +195,7 @@ Events are stored in one set with all events, and defined as:
 Their parameters don't need `mut` attribute. Currently in generated `Yul` code events are emitted as `LOG0`, thus there are no `indexed` parameters (https://github.com/elser-lang/elser/issues/7).
 
 ### Types
-Dynamic typing is discouraged as it leads to unpredictable runtime errors. Though, it's planned to support `(map)` as only dynamic type, and to support fixed-sized arrays (https://github.com/elser-lang/elser/issues/10).
+Dynamic typing is discouraged as it might lead to unpredictable runtime errors. Though, it's planned to support `(map)` as only dynamic type, and to support fixed-sized arrays (https://github.com/elser-lang/elser/issues/10).
 
 There are only 256-bits types to restrict variables packing, and prevent casting stuff back-and-forth during code generation.
 
@@ -300,12 +300,12 @@ It will produce `counter.yul & counter.bytecode` files in `/out` folder (note, c
 #### 5.1 Remix IDE
 The simplest way to interact with the compiled contract is to use [Remix IDE](https://remix.ethereum.org/#optimize=true&version=soljson-v0.4.24+commit.e67f0147.js&lang=en&runs=200&evmVersion=null&language=Solidity).
 
-##### 5.1.1 Copy `counter.yul` inside `/contracts` folder
+##### - Copy `counter.yul` inside `/contracts` folder
 <img width="600" alt="step0" src="https://github.com/user-attachments/assets/8fa120c6-1e0f-401f-89c7-afca5cbe4bc6" />
 
-##### 5.1.2 Set compiler version to the one specified in `:pragma`, and set language to `Yul`.
+##### - Set compiler version to the one specified in `:pragma`, and set language to `Yul`.
 <img width="200" alt="step1" src="https://github.com/user-attachments/assets/357911e7-c35a-4263-b95e-c5416ef8a954" />
 
-#### 5.1.3 Compile and Deploy contract.
-#### 5.1.4 You can interact with it via `Low level interactions`:
+##### - Compile and Deploy contract.
+##### - You can interact with it via `Low level interactions`:
 <img width="600" alt="step2" src="https://github.com/user-attachments/assets/8fe0111c-b220-4a84-88c4-b52d8e54d81a" />
