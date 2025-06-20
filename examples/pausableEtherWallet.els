@@ -1,0 +1,65 @@
+(ns pausableEtherWallet (:pragma "0.8.30"))
+
+(constructor (sto write! owner (caller)))
+
+(events
+ [
+ (def Paused [(acc :u256)])
+ (def Unpaused [(acc :u256)])
+ ])
+
+(constants
+ {:internal [
+ ;; The operation failed because the contract is paused.
+ (def ERR_ENFORCED_PAUSE [(e :u256)] 69)
+ ;; The operation failed because the contract is not paused.
+ (def ERR_EXPECTED_PAUSE [(e :u256)] 70)
+ ]})
+
+(storage
+ {:external [
+ (def owner [(o :addr)])
+ (def paused [(p :bool)])
+ ]})
+
+(functions
+ {:external
+ [
+ (defn emergencyWithdraw [] @sto{:w 2 :r 1} (-> [])
+   (do
+    (invoke! onlyOwner)
+    (invoke! withdraw (balance (self)))
+     (invoke! pause)))
+ 
+ (defn withdraw [(amount :u256)] @sto{:w 0 :r 1} (-> [])
+   (do (invoke! onlyOwner)
+       (transfer* (caller) amount)))
+
+ (defn getBalance [] @sto{:w 0 :r 0} (-> [(b mut :u256)])
+   (-> b (balance (self))))
+ ]
+ 
+ :internal [
+ 
+ ;; Triggers stopped state.
+ (defn pause [] @sto{:w 2 :r 1} (-> [])
+   (do (invoke! requireNotPaused)
+       (sto write! paused true)))
+
+ ;; Returns to normal state. 
+ (defn unpause [] @sto{:w 2 :r 1} (-> [])
+   (do (invoke! requirePaused)
+       (sto write! paused false)))
+ 
+ (defn requireNotPaused [] @sto{:w 0 :r 1} (-> [])
+   (require (sto read! paused) ERR_ENFORCED_PAUSE))
+
+ (defn requirePaused [] @sto{:w 0 :r 1} (-> [])
+   (require (not (sto read! paused)) ERR_ENFORCED_PAUSE))
+
+
+ (defn onlyOwner [] @sto{:w 0 :r 1} (-> [])
+   (assert (= (caller) (sto read! owner))))
+ ] 
+ })
+

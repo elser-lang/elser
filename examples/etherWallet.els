@@ -2,7 +2,7 @@
 
 (constructor (sto write! owner (caller)))
 
-(storage {:external [(def owner [(o mut :addr)])]})
+(storage {:external [(def owner [(o :addr)])]})
 
 (functions
  {:external

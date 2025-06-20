@@ -6,6 +6,24 @@
             [elser.errors :as errs]
             [elser.core :as core]))
 
+(def STO_ACCESS_LOWER_BOUND 0)
+(def STO_ACCESS_UPPER_BOUND 3)
+
+(defn check-access-bounds [o]
+  (<= STO_ACCESS_LOWER_BOUND o STO_ACCESS_UPPER_BOUND))
+
+(defn validate-permissions [write read]
+  (if (not (and (int? write) (int? read)))
+    (errs/err-sto-access-non-int [write read]))
+  
+  (if (not (and (check-access-bounds write)
+               (check-access-bounds read)))
+    (errs/err-invalid-permission-value
+     [write read]
+     [STO_ACCESS_LOWER_BOUND
+      STO_ACCESS_UPPER_BOUND])))
+ 
+
 (defn sig->fn-call
   [sig]
   (let [[_ name args]
@@ -157,11 +175,7 @@
                                          :fn-type (function-type fn-type)
                                          :body body
                                          :return (args-to-symbols (second ret))}]
-                            (if (not (or (= write 0) (= write 1)))
-                              (errs/err-invalid-permission-value write [0 1]))
-                            (if (not (or (= read 0) (= read 1)))
-                              (errs/err-invalid-permission-value read [0 1]))
-                            
+                            (validate-permissions write read)                            
                             (-> state
                                 (update-in [:functions visibility] conj var-def))))
                         state

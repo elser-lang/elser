@@ -2,7 +2,7 @@
 
 (storage
  {:external
-  [(def count [(x mut :u256)])]})
+  [(def count [(x :u256)])]})
 
 (functions
  {:external
