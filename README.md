@@ -96,6 +96,8 @@ This structure makes it trivial to navigate code and integrate IDE features.
 ### Storage Variables
 Every storage variable is put either in `:external` variables set, or in `:internal` variables set.
 
+By default, all storage variables are *mutable* (it's planned to change that https://github.com/elser-lang/elser/issues/20).
+
 Definition syntax looks as follows:
 ```clj
 (def owner [(r :addr)])
@@ -125,10 +127,41 @@ For instance, if `transfer` function applies fee to the amount and overwrites it
 
 #### Function Permissions
 Storage-access attribute `@sto{:w 0 :r 0}` can't be omitted, and should always explicitly specify allowed operations for the function:
-- `{:w }` - permission to write to storage (1 - allowed, 0 - restricted).
-- `{:r }` - permission to read from storage (1 - allowed, 0 - restricted).
+- `{:w i}` - permission to write to storage.
+- `{:r j}` - permission to read from storage.
 
-`function0 (f0)` can invoke `function1 (f1)` iff `f0{:w} >= f1{:w} && f0{:r} >= f1{:r}`
+Where $i,j \in$ {0,1,2,3}
+
+Function $x$ can invoke function $y$
+$$\iff x.w \geq y.w \land x.r \geq y.r$$
+
+In other words, $x$ must have at least as much write and read‑privilege as $y$.
+
+**Example of Multi-Level Permissions**
+
+It can be useful to limit access to certain critical functions withtin a namespace. For example, we can have a `pausableEtherWallet` namespace that will implement ETH-storing wallet and will have pausable functionality.
+
+We create two tiers of functionality:
+
+**1. Core operations (w ∈ {0,1}, r ∈ {0,1})**
+```clj
+(defn withdraw [(amount :u256)] @sto{:w 0 :r 1} (-> []) ...)
+(defn getBalance [] @sto{:w 0 :r 0} (-> [(b mut :u256)]) ...)
+```
+
+**2. Critical operations (w = 2, r = 1)**
+
+Pushed to higher level of permissions:
+```clj
+(defn emergencyWithdraw [] @sto{:w 2 :r 1} (-> []) ...)
+(defn pause [] @sto{:w 2 :r 1} (-> []) ...)
+```
+Attempting to call a level‑2 function from a level‑0 or level‑1 function results in a compile‑time error:
+```clj
+;; > elser: invalid permissions: fn emergencyWithdraw | have {:r 1, :w 0} | want {:r 1, :w 2}
+(defn withdraw [(amount :u256)] @sto{:w 0 :r 1} (-> []) 
+  (invoke! emergencyWithdraw))
+``` 
 
 #### Function Returns
 Return parameters are also immutable by default, and should be explicitly marked as `mut` to map values to them. All functions should include return syntax, even if they don't return anything:
