@@ -22,7 +22,28 @@
      [write read]
      [STO_ACCESS_LOWER_BOUND
       STO_ACCESS_UPPER_BOUND])))
- 
+
+(def valid-form?
+  {:list (fn [c]
+           (if (not (list? (first (rest c))))
+             (errs/err-invalid-nested-type (first c) (rest c) '())))
+
+   :vec (fn [c]
+           (if (not (vector? (first (rest c))))
+             (errs/err-invalid-nested-type (first c) (rest c) '())))   
+
+   :map (fn [c]
+          (if (not (map? (first (rest c))))
+            (errs/err-invalid-nested-type (first c) (rest c) '{})))
+
+   :string (fn [c]
+          (if (not (string? (first (rest c))))
+            (errs/err-invalid-nested-type (first c) (rest c) 'string)))
+
+   :symbol (fn [c]
+             (if (not (symbol? (first (rest c))))
+               (errs/err-invalid-nested-type (first c) (rest c) 'symbol)))
+   })
 
 (defn sig->fn-call
   [sig]
@@ -103,7 +124,8 @@
 
 (defn process-ex-in
   [objects]
-  (let [x (first (rest objects))
+  (:list valid-form? (first (rest objects))) ; Verify that it's a list.
+  (let [x (apply hash-map (first (rest objects))) ; Convert list to a map.
         external (:external x)
         internal (:internal x)]
     {:external external
@@ -111,7 +133,11 @@
 
 ;; TODO: all these 'process-*' functions should be combined into 1.
 (defn process-constructor [constructor]
-  {:constructor {:body (second constructor)}})
+  (let [body (rest constructor)]
+    (if (> (count body) 1)
+      (errs/err-invalid-nested-constr-form body '()))
+    {:constructor {:body (second constructor)}})
+    )
 
 (defn process-constants [constants]
   (let [definitions (process-ex-in constants)]
@@ -160,33 +186,34 @@
   (let [definitions (process-ex-in functions)]
     (let [initial-state {:functions
                          {:external [] :internal []}}]
+
       (reduce (fn [state [visibility defs]]
                 (reduce (fn [state def-form]
                           (let [[fn-type fn-name args access ret body] def-form
-                                write (:w (first access))
-                                read (:r (first access))
+                                access (apply hash-map (rest access))
+                                write (:w access)
+                                read (:r access)
                                 sig (defn-to-signature fn-name args)
                                 var-def {:name fn-name
                                          :selector (obtain-selector sig)
                                          :signature sig
-                                         :permissions (first access)
+                                         :permissions access
                                          :fn-call (sig->fn-call sig)
                                          :args (args-to-symbols args)
                                          :fn-type (function-type fn-type)
                                          :body body
                                          :return (args-to-symbols (second ret))}]
-                            (validate-permissions write read)                            
+                            (validate-permissions write read)
                             (-> state
-                                (update-in [:functions visibility] conj var-def))))
+                                (update-in 
+                                 [:functions visibility] 
+                                 conj var-def))))
                         state
                         defs))
               initial-state
               [[:external (:external definitions)]
                [:internal (:internal definitions)]]))))
 
-;; FIX: this function:
-;; - can't increment storage counter for data that occupies more than 32 bytes.
-;; - looks ugly...
 (defn process-storage [storage]
   (let [definitions (process-ex-in storage)
         initial-state {:slot-counter 0x00
@@ -198,8 +225,7 @@
                               ;; Use custom slot if specified, otherwise allocate new.
                               custom-slot (when (map? (last opts)) (:slot (last opts)))
                               slot (or custom-slot (:slot-counter state))
-                              ret (args-to-symbols (subvec sto-types
-                                                           (- (count sto-types) 1)))
+                              ret (args-to-symbols sto-types)
                               t (sto-var-type sto-types)
                               sto-types (if (:map t)
                                           (reduce
@@ -234,28 +260,6 @@
             [[:external (:external definitions)]
              [:internal (:internal definitions)]])))
 
-(def valid-nested-type?
-  {:list (fn [c]
-           (if (not (list? (first (rest c))))
-             (errs/err-invalid-nested-type (first c) (rest c) '())))
-
-   :vec (fn [c]
-           (if (not (vector? (first (rest c))))
-             (errs/err-invalid-nested-type (first c) (rest c) '())))   
-
-   :map (fn [c]
-          (if (not (map? (first (rest c))))
-            (errs/err-invalid-nested-type (first c) (rest c) '{})))
-
-   :string (fn [c]
-          (if (not (string? (first (rest c))))
-            (errs/err-invalid-nested-type (first c) (rest c) 'string)))
-
-   :symbol (fn [c]
-             (if (not (symbol? (first (rest c))))
-               (errs/err-invalid-nested-type (first c) (rest c) 'symbol)))
-   })
-
 (defn collect-symbols
   "Produces a symbol table on a given AST."
   [ast]
@@ -267,28 +271,28 @@
        
        ;; Namespace defintion.
        (= 'ns (first form))
-       (do ((:symbol valid-nested-type?) form)
+       (do ((:symbol valid-form?) form)
            (assoc (assoc symbols :pragma (last (last form)))
                   :ns (second form)))
 
        (= 'constructor (first form))
-       (do ((:list valid-nested-type?) form)
+       (do ((:list valid-form?) form)
            (merge symbols (process-constructor form)))
 
        (= 'events (first form))
-       (do ((:vec valid-nested-type?) form)
+       (do ((:list valid-form?) form)
            (merge symbols (process-events form)))
 
        (= 'constants (first form))
-       (do ((:map valid-nested-type?) form)
+       (do ((:list valid-form?) form)
            (merge symbols (process-constants form)))
        
        (= 'storage (first form))
-       (do ((:map valid-nested-type?) form)
+       (do ((:list valid-form?) form)
            (merge symbols (process-storage form)))
        
        (= 'functions (first form))
-       (do ((:map valid-nested-type?) form)       
+       (do ((:list valid-form?) form)       
            (merge symbols (process-functions form)))
        
        :else

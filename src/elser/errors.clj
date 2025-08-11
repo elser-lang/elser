@@ -38,6 +38,11 @@
           (format "elser: invalid nested-type in form (%s): have %s | want %s"
                   in-form have want))))
 
+(defn err-invalid-nested-constr-form [have want]
+  (throw (Exception.
+          (format "elser: invalid nested form in (constructor): have %s | want %s"
+                  have want))))
+
 (defn err-arity-exception [f have want]
   (throw (Exception.
           (format "elser: invalid arity for function %s: have %s | want %s"
@@ -82,7 +87,7 @@
                              f h w))))
 
 (defn err-sto-access-non-int [a]
-  (throw (Exception. (format "elser: invalid type for @sto access valie: %s" a))))
+  (throw (Exception. (format "elser: invalid type for @sto access value: %s" a))))
 
 (defn err-diff-types-comp [x y]
   (throw (Exception. (format "elser: comparing diff types: x %s | y %s" x y))))

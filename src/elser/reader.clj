@@ -81,7 +81,7 @@
       (= tkn "`") (do (rnext rdr) (list 'quasiquote (read-form rdr)))
       (= tkn "~") (do (rnext rdr) (list 'unquote (read-form rdr)))
       ;; Permissions symbol => jump to the permissions map.
-      (= tkn "@") (do (rnext rdr) (rnext rdr) (list (read-form rdr)))
+      (= tkn "@") (do (rnext rdr) (list (read-form rdr)))
       (= tkn "~@") (do (rnext rdr) (list 'splice-unquote (read-form rdr)))
       (= tkn "^") (do (rnext rdr) (let [meta (read-form rdr)
                                        data (read-form rdr)]
