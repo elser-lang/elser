@@ -37,11 +37,11 @@
    ['assert (fn [c] (format "if iszero(%s) { revert(0,0) }\n" c))]
    ['require (fn [c msg]
                (format
-                "if iszero(%s) { let err := \"%s\" mstore(0, err) revert(0,32) }\n"
+                "if iszero(%s) { let err := %s mstore(0, err) revert(0,32) }\n"
                 c msg))]
    
    ['revert (fn [msg] (format "let msg := \"%s\" mstore(0,msg) revert(0,32)\n" msg))]
-   ['emit! (fn [func args] (apply func args))]
+   ['emit! (fn [func & args] (apply func args))]
 
    ;; Control-flow statements
    ['if (fn [pred true-body false-body]
