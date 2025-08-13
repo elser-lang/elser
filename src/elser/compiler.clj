@@ -7,8 +7,6 @@
             [clojure.string :as string]
             [clojure.pprint :refer [pprint]]))
 
-(def return-var "ret_val")
-
 (defn add-funcs-to-env
   "
   Add function name => function call to the main env.
@@ -235,7 +233,8 @@
 
 ;; TODO: handle dynamics data types.
 (defn compile-storage-var-body [definition yul-env]
-  (let [var-type (:var-type definition)]
+  (let [var-type (:var-type definition)
+        return (first (:return definition))]
     (cond
       (:simple var-type)      
       (format "          %s := sload(%s)\n" (:name
@@ -244,7 +243,7 @@
 
       ;; TODO: handle maps and arrays.
       :else
-      (format "          %s := sload(%s)\n" return-var (:slot definition)))))
+      (format "          %s := sload(%s)\n" (:name return) (:slot definition)))))
 
 (defn compile-event-body
   "
