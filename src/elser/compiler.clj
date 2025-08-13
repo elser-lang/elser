@@ -88,7 +88,6 @@
     
     :else symbols))
 
-;; TODO: finish 'return' statement!!!!
 (defn compile
   [symbols yul-env sto-env]
   (cond
@@ -122,8 +121,10 @@
                                                        sto-env
                                                        ))))
                                              [] local-defs))]
+                         ;; Bind local variables.
                          (doseq [[b _] local-defs]
-                           (env/eset let-env b b))                         
+                           (env/eset let-env b b))
+                         ;; Execute 'let' body.
                          (str yul-lets "\n"
                               (string/join "\n"
                               (mapv (fn [i] (compile (nth symbols i)
@@ -245,13 +246,20 @@
       :else
       (format "          %s := sload(%s)\n" return-var (:slot definition)))))
 
-(defn compile-event-body [definition]
+(defn compile-event-body
+  "
+  Return event as a Yul function to invoke that executes
+  LOGx opcode with variable number of arguments read from memory.
+  "
+  [definition]
   (loop [code-lines []
          mem-counter 0
          args (:args definition)]
     (if (= (count args) 0)
+      
       (str (string/join "\n" code-lines) "\n"
            (format "          log0(0,%s)" mem-counter) "\n")
+      
       (recur
        (conj code-lines
              (format "          mstore(%s, %s)"
@@ -261,8 +269,10 @@
        ))))
 
 (defn compile-function-body
+  "Compile list of s-expressions of Elser function to Yul operations."
   [definition yul-env sto-env]
-  (let [body (compile (:body definition) yul-env sto-env)
+  (let [defn-body (:body definition)
+        body (compile defn-body yul-env sto-env)
         lines (string/split body #"\n")]
     body))
 
@@ -276,13 +286,18 @@
             (str (:name a)))) [] args)))
 
 (defn elser-func-body->yul-func-body
+  "
+  Produce 3 possible types of compiled function body based on def-type:
+  1. defn body of extneral or internal function.
+  2. def body of an external storage vairable.
+  3. def body of an external constant.
+  "
   [definition yul-env sto-env def-type]
   (cond
     (contains? def-type :functions)
     (compile-function-body definition yul-env sto-env)
     
-    (contains? def-type :storage)
-    ;; Storage getters will just use `sload()`
+    (contains? def-type :storage) ; Storage getters will just use `sload()`
     (compile-storage-var-body definition yul-env)
 
     (contains? def-type :constants)
@@ -295,7 +310,7 @@
 
 (defn elser-ret->yul-ret [ret]
   (if (empty? ret)
-    ""    
+    ""
     (format " -> %s"
             (string/join
              ", "
@@ -304,17 +319,17 @@
                             "ret_val")) ret)))))
 
 (defn elser-func->yul-func
-  "Translates individual elser function into a Yul function."
+  "Compile Elser's s-expressions to Yul operations, based on def-type."
   [definition yul-env sto-env def-type]
   (str
    "      function " (:name definition) "("
-   ;; 1) Compile arguments + returns.
+   ;; Compile arguments + returns.
    (elser-args->yul-args (:args definition)) ")" (elser-ret->yul-ret
-                                                    (:return definition)) "{\n"
-   ;; 2) Compile function body.
+                                                  (:return definition)) "{\n"
+   ;; Compile function body.
    (elser-func-body->yul-func-body definition
-    (init-local-env yul-env definition)
-    sto-env def-type)
+                                   (init-local-env yul-env definition)
+                                   sto-env def-type)
    "      }\n"))
 
 (defn constructor-code [constructor yul-env sto-env]
@@ -333,15 +348,16 @@
           ""
           definitions))
 
-(defn generate-getters
+(defn functions-code
+  "Return Yul function for each definition inside definitions vector."
   [definitions yul-env sto-env def-type]
   (reduce (fn [full definition]
-            (str full
-                 (elser-func->yul-func
-                  definition yul-env sto-env def-type))) "" definitions))
+            (str
+             full (elser-func->yul-func
+                   definition yul-env sto-env def-type))) "" definitions))
 
 (defn compile-to-yul
-  "This function is doing a template-based Yul code generation."
+  "Template-based Yul code generation."
   [symbols yul-env sto-env]  
   (let [contract-name (:ns symbols)
         constructor (:constructor symbols)
@@ -349,46 +365,48 @@
         constants (:constants symbols)
         storage (:storage symbols)
         functions (:functions symbols)]
-    ;; TODO: add constructor code (if there's one).
-    (str "object \"" contract-name "\" {\n"
-         "  code {\n"
-         (constructor-code constructor yul-env sto-env)
-         "    datacopy(0, dataoffset(\"runtime\"), datasize(\"runtime\"))\n"
-         "    return(0, datasize(\"runtime\"))\n"
-         "  }\n"
-         "  object \"runtime\" {\n"
-         "    code {\n"         
-         ;;~~~~~~~  Dispatcher
-         "      // Dispatcher\n"
-         "      switch shr(224, calldataload(0))\n"
-         (dispatcher-code (:external functions) yul-env)
-         "      // Storage-access\n"
-         (dispatcher-code (:external storage) yul-env)
-         "      // External constants\n"         
-         (dispatcher-code (:external constants) yul-env)
-         "      default { revert(0,0) }\n\n"
-         "\n"
-         (generate-getters (:external functions)
-                         yul-env sto-env {:functions true})
-         (generate-getters (:internal functions)
-                         yul-env sto-env {:functions true})
-         "\n"
-         "      /* -------- storage access ---------- */\n"
-         (generate-getters (:external storage) yul-env '{} {:storage true})
-         (generate-getters (:internal storage) yul-env '{} {:storage true})
-         "      /* -------- constants ---------- */\n"
-         (generate-getters (:external constants) yul-env '{} {:constants true})
-         (generate-getters (:internal constants) yul-env '{} {:constants true})
-         "      /* -------- events ---------- */\n"         
-         (generate-getters events yul-env '{} {:events true})
-         "\n    }\n"
-         "  }\n"
-         "}")))
+    (str
+     ;; Constructor code.
+     "object \"" contract-name "\" {\n"
+     "  code {\n"
+     (constructor-code constructor yul-env sto-env)
+     "    datacopy(0, dataoffset(\"runtime\"), datasize(\"runtime\"))\n" ; Copy runtime code.
+     "    return(0, datasize(\"runtime\"))\n"
+     "  }\n"
 
-;; TODO: MUST extend `yul-env` with :outer envs that will contains:
-;; - storage binds
-;; - memory binds
-;; - calldata binds
+     ;; Runtime code.
+     "  object \"runtime\" {\n"
+     "    code {\n"         
+     ;; Function dispatcher for external definitions.
+     "      // Dispatcher\n"
+     "      switch shr(224, calldataload(0))\n"
+     (dispatcher-code (:external functions) yul-env)
+     "      // Storage-access\n"
+     (dispatcher-code (:external storage) yul-env)
+     "      // External constants\n"         
+     (dispatcher-code (:external constants) yul-env)
+     "      default { revert(0,0) }\n\n"
+     "\n"
+
+     "      /* -------- external functions ---------- */\n"
+     (functions-code (:external functions)
+                       yul-env sto-env {:functions true})
+     "      /* -------- internal functions ---------- */\n"
+     (functions-code (:internal functions)
+                       yul-env sto-env {:functions true})
+     "\n"
+     "      /* -------- storage access ---------- */\n"
+     (functions-code (:external storage) yul-env '{} {:storage true})
+     (functions-code (:internal storage) yul-env '{} {:storage true})
+     "      /* -------- constants ---------- */\n"
+     (functions-code (:external constants) yul-env '{} {:constants true})
+     (functions-code (:internal constants) yul-env '{} {:constants true})
+     "      /* -------- events ---------- */\n"
+     (functions-code events yul-env '{} {:events true})
+     "\n    }\n"
+     "  }\n"
+     "}")))
+
 (defn symtable-to-yul
   [symbols yul-env sto-ns]
     (compile-to-yul
