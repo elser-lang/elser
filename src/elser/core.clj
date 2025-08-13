@@ -40,7 +40,6 @@
                 "if iszero(%s) { let err := \"%s\" mstore(0, err) revert(0,32) }\n"
                 c msg))]
    
-   ;; fix: messages aren't displayed yet.
    ['revert (fn [msg] (format "let msg := \"%s\" mstore(0,msg) revert(0,32)\n" msg))]
    ['emit! (fn [func args] (apply func args))]
 

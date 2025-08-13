@@ -41,11 +41,15 @@
                      (cond
                        (= f 'let)
                        (let [let-env (env/env types-env)
-                             local-defs (partition 2 (first (rest symbols)))]
+                             local-defs (partition 2 (first (rest symbols)))
+                             body (last symbols)]
+                         ;; Bind local variables.
                          (doseq [[a b] local-defs]
-                           (env/eset let-env a
-                                     (assoc (typecheck b types-env permissions)
-                                            :mutable? 'mut))))
+                           (do 
+                             (env/eset let-env a
+                                       (typecheck b types-env permissions))))
+                         (typecheck body let-env permissions)
+                         )
 
                        (= f 'loop)
                        (let [loop-env (env/env types-env)
@@ -53,10 +57,10 @@
                              [_ _ cnd body post-iter] symbols
                              slt (assoc (vec symbols) 0 'let)]
                          (doseq [[a b] (partition 2 (first (rest symbols)))]
+                           ;; Bind variables.
                            (env/eset loop-env a
-                                     (assoc (typecheck b types-env permissions)
-                                            :mutable? 'mut)))
-                         (do 
+                                     (typecheck b types-env permissions)))
+                         (do
                            (typecheck (second cnd) loop-env permissions)
                            (typecheck post-iter loop-env permissions)
                            (typecheck body loop-env permissions)))
@@ -78,7 +82,7 @@
                        ;; permissions required by the function.
                        (let [p (:permissions
                                 (env/eget types-env (first (rest symbols))))]
-                         ;; TODO: check type for 
+                         ;; TODO: check type for
                          (do
                            (if (not (and (>= (:w permissions) (:w p))
                                          (>= (:r permissions) (:r p))))

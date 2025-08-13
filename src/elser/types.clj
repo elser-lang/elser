@@ -34,9 +34,13 @@
 
     (map? x)
     (cond
+      ;; If object specified return, then we substitute it
+      ;; for its return type.
+      ;; E.g., add(:u256,:u256) -> :u256 is of type (:u256)
       (get x :return)
       (infer-type (first (get x :return)))
-      
+
+      ;; If type is specified use it.
       (get x :type)
       (get x :type)
       

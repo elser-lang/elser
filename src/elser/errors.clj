@@ -33,6 +33,9 @@
 (defn err-invalid-top-level-form [s]
   (throw (Exception. (format "elser: top-level form must be a list (): %s" s))))
 
+(defn err-invalid-ex-in-definition [s]
+  (throw (Exception. (format "elser: invalid :external :internal definition: %s" s))))
+
 (defn err-invalid-nested-type [in-form have want]
   (throw (Exception.
           (format "elser: invalid nested-type in form (%s): have %s | want %s"
@@ -58,6 +61,12 @@
   (throw (Exception.
           (format "elser: invalid loop defintion, should be (loop [binds] (cond) (body) (post-iter))"))))
 
+
+(defn err-incorrect-return-symbol
+  [s]
+  (throw (Exception.
+          (format "elser: return symbol should be '->', got %s" s))))
+
 (defn err-incorrect-arr-def
   [have]
   (throw (Exception.
@@ -76,8 +85,8 @@
 (defn err-set-on-immutable [t]
   (throw (Exception. (format "elser: set! for immutable: %s" t))))
 
-(defn err-invalid-def-key [h w]
-  (throw (Exception. (format "elser: invalid variable definition: have %s | want %s" h w))))
+(defn err-invalid-def-key [h w n]
+  (throw (Exception. (format "elser: (%s) invalid definition: have %s | want %s" n h w))))
 
 (defn err-invalid-permission-value [h w]
   (throw (Exception. (format "elser: invalid permission value: have %s | want %s" h w))))

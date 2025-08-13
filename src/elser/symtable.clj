@@ -85,20 +85,26 @@
 (defn def-to-signature
   "Converts elsers's external storage definitions to function signatures."
   [def-name sto-types]
-  (format "%s(%s)" def-name
-          (string/join ","
-                       (map
-                        (fn [t]
-                          (name (first t))) sto-types))))
+  (let [ret-symbol (first sto-types)
+        types (rest sto-types)]
+    
+    (if (not (= ret-symbol '->))
+      (errs/err-incorrect-return-symbol ret-symbol))
+    
+    (format "%s(%s)" def-name
+            (string/join ","
+                         (map
+                          (fn [t]
+                            (name (first t))) (rest types))))))
 
 (defn args-to-symbols
   "
   Produces {:name ... :type ...} map on
-  a given [(arg_0 [mut] :type) ... (arg_n [mut] :type)]
+  a given ((arg_0 [mut] :type) ... (arg_n [mut] :type))
   "
   [args]
   (map-indexed (fn [i v]
-         (let [mutable? (some #{'mut} v)               
+         (let [mutable? (some #{'mut} v)
                arg-name (nth v 0)
                arg-type (last v)]
            {:name arg-name
@@ -122,25 +128,43 @@
     definition
     (errs/err-unsupported-function-def definition supported-function-types)))
 
-(defn process-ex-in
-  [objects]
-  (:list valid-form? (first (rest objects))) ; Verify that it's a list.
-  (let [x (apply hash-map (first (rest objects))) ; Convert list to a map.
-        external (:external x)
-        internal (:internal x)]
-    {:external external
-     :internal internal}))
+(defn extract-external-internal
+  "Extract :external & :internal definitions from top-level object"
+  [object]
+  
+  (:list valid-form? (first (rest object))) ; Verify that it's a list.
+  
+  (let [x (apply hash-map (first (rest object)))
+        ex (:external x)
+        in (:internal x)] ; Convert list to a map.
+    x))
 
-;; TODO: all these 'process-*' functions should be combined into 1.
+;; ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SEMANTIC ANALYSIS FUNCTIONS
+
+(defn is-valid-def?
+  "Destructure form and validate correctness of its definition."
+  [form]
+  (let [[key name types & opts] form]
+    (println "key:" key)
+    (println "name:" name)
+    (println "types:" types)
+    (println "opts:" opts)
+    (if (not (= key 'def))
+      (errs/err-invalid-def-key key 'def name))
+    )
+  )
+
+
+;; ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ PROCESSING FUNCTIONS
+
 (defn process-constructor [constructor]
   (let [body (rest constructor)]
     (if (> (count body) 1)
       (errs/err-invalid-nested-constr-form body '()))
-    {:constructor {:body (second constructor)}})
-    )
+    {:constructor {:body (second constructor)}}))
 
 (defn process-constants [constants]
-  (let [definitions (process-ex-in constants)]
+  (let [definitions (extract-external-internal constants)]
     (let [initial-state {:constants
                          {:external [] :internal []}}]
       (reduce (fn [state [visibility defs]]
@@ -152,7 +176,9 @@
                                          :signature sig
                                          :fn-call sig
                                          :body val
-                                         :return (args-to-symbols c-type)}]
+                                         :return (args-to-symbols (rest c-type))}]
+                            (if (not (= (first c-type) '->))
+                              (errs/err-incorrect-return-symbol (first c-type)))
                             ;; Validate that name is capped.
                             (if (not (= (str c-name) (string/upper-case c-name)))
                               (errs/err-non-upper-case-const c-name)
@@ -183,7 +209,7 @@
             definitions)))
 
 (defn process-functions [functions]
-  (let [definitions (process-ex-in functions)]
+  (let [definitions (extract-external-internal functions)]
     (let [initial-state {:functions
                          {:external [] :internal []}}]
 
@@ -215,25 +241,22 @@
                [:internal (:internal definitions)]]))))
 
 (defn process-storage [storage]
-  (let [definitions (process-ex-in storage)
+  (let [definitions (extract-external-internal storage)
         initial-state {:slot-counter 0x00
                        :storage {:external [] :internal []}
                        :occupied-slots []}]
+    
     (reduce (fn [state [visibility defs]]
+              
               (reduce (fn [state def-form]
+                        (println "def-form" (is-valid-def? def-form))
+                        
                         (let [[_ def-name sto-types & opts] def-form
                               ;; Use custom slot if specified, otherwise allocate new.
                               custom-slot (when (map? (last opts)) (:slot (last opts)))
                               slot (or custom-slot (:slot-counter state))
-                              ret (args-to-symbols sto-types)
+                              ret (args-to-symbols (rest sto-types))
                               t (sto-var-type sto-types)
-                              sto-types (if (:map t)
-                                          (reduce
-                                           (fn [v t] (conj v (list t)))
-                                           []
-                                           (drop-last
-                                            (remove #{'=>} sto-types)))
-                                          '[])
                               sig (def-to-signature def-name sto-types)
                               ;; Increment counter if using auto-allocation.
                               new-counter (if custom-slot
@@ -242,7 +265,7 @@
                               var-def {:name def-name
                                        :selector (obtain-selector sig)
                                        :signature sig
-                                       :args (args-to-symbols sto-types)
+                                       :args '() ; TODO: update for complex types.
                                        :slot slot
                                        :return ret
                                        :var-type t}]
@@ -256,9 +279,13 @@
                           ))
                       state
                       defs))
+            
             initial-state
             [[:external (:external definitions)]
              [:internal (:internal definitions)]])))
+
+(defn process-transient [trn]
+  {:transient (process-storage `(storage (:internal ~(last trn))))})
 
 (defn collect-symbols
   "Produces a symbol table on a given AST."
@@ -286,6 +313,10 @@
        (= 'constants (first form))
        (do ((:list valid-form?) form)
            (merge symbols (process-constants form)))
+
+       (= 'transient (first form))
+       (do ((:list valid-form?) form)
+           (merge symbols (process-transient form)))
        
        (= 'storage (first form))
        (do ((:list valid-form?) form)
