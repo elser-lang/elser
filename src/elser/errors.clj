@@ -4,7 +4,7 @@
 (defn err-eof-before-paren [] (throw (Exception. "elser: EOF before ')'")))
 
 (defn err-unexpected-tkn [s]
-  (throw (Exception. (format "elser: unexpected end of input: %s" s))))
+  (throw (Exception. (format "elser: unexpected token: %s" s))))
 
 (defn err-unbalanced
   [s]

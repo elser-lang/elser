@@ -88,10 +88,14 @@
                                    (list 'with-meta data meta)))
       (= tkn ")") (errs/err-unbalanced "'( )'")
       (= tkn "(") (apply list (read-list rdr "(" ")"))
-      (= tkn "]") (errs/err-unbalanced "'[ ]'")
-      (= tkn "[") (vec (read-list rdr "[" "]"))
+      
       (= tkn "}") (errs/err-unbalanced "'{ }'")
       (= tkn "{") (apply hash-map (read-list rdr "{" "}"))
+
+      ;; Ban these brackets.
+      (= tkn "]") (errs/err-unexpected-tkn tkn)
+      (= tkn "[") (errs/err-unexpected-tkn tkn)
+      
       :else (read-atom rdr))))
 
 (defn read-str [in]  
