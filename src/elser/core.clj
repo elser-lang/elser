@@ -2,8 +2,10 @@
   (:gen-class)
   (:require [elser.env :as env]
             [elser.printer :as prnt]
-            [elser.types :as types]            
-            [elser.reader :as reader]))
+            [elser.types :as types]
+            [elser.destruct :as destruct]
+            [elser.reader :as reader]
+            [clojure.string :as string]))
 
 (def yul-ns
   [
@@ -56,15 +58,33 @@
 
 (def sto-ns
   [
-   ['read! (fn [var-name & args]
-             (format "%s(%s)" var-name
-                     (if (nil? args)
-                       ""
-                       args)))]
+   ['read! (fn [sto-var val]
+             (format "sload(%s)"
+                     (cond
+                       (= (:type sto-var) destruct/base-type)
+                       (:slot sto-var)
+
+                       (= (:type sto-var) destruct/map-type)
+                       ;; Call to the offset calculating function.
+                       (str (:name sto-var) "_sto_offset("
+                            (string/join "," val) ")")
+                       )))]
 
    ;; TODO: handle arrays/maps.
    ['write! (fn [sto-var val]
-              (format "sstore(%s, %s)" (:slot sto-var) val))]
+              (apply format "sstore(%s, %s)"
+                      (cond
+                        (= (:type sto-var) destruct/base-type)
+                        [(:slot sto-var) (first val)]
+
+                        (= (:type sto-var) destruct/map-type)
+                        [
+                         ;; Call to the offset calculating function.
+                         (str (:name sto-var) "_sto_offset("
+                             (string/join "," (pop val)) ")")
+                         ;; Value to store is the last element of VAL vector.
+                         (last val)]
+                        )))]
    ])
 
 (def types-ns

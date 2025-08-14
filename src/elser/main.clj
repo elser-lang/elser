@@ -13,7 +13,7 @@
             [clojure.repl :as clj-repl]
             [clojure.pprint :refer [pprint]]))
 
-(def prompt (fn [] (println "user > ") (flush)))
+(def prompt (fn [] (print ">>> ") (flush)))
 
 (def yul-env (env/env))
 (doseq [[k v] core/yul-ns] (env/eset yul-env k v))
@@ -27,8 +27,8 @@
 
 (defn rep
   [inp]
-     (compiler/compile
-      (READ inp) yul-env '()))
+  (let [ast (READ inp)]
+    (symtable/collect-symbols `(constructor ~ast))))
 
 (defn repl-loop []
   (prompt)
@@ -36,7 +36,7 @@
     ; Skip comments
     (if (not= \; (get line 0))
       (try
-        (println "===========\n" (rep line))
+        (println (rep line))
         (catch Throwable e (clj-repl/pst e))))
       (recur)))
 
@@ -75,5 +75,5 @@
     (if file      
       (process-file file options)
       
-      (do (println "Starting REPL ...")
+      (do (println "Elser REPL")
           (repl-loop)))))
