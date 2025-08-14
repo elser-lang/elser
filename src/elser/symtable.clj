@@ -4,6 +4,8 @@
            [org.web3j.utils Numeric])
   (:require [clojure.string :as string]
             [elser.errors :as errs]
+            [elser.types :as els-types]
+            [elser.destruct :as destruct]
             [elser.core :as core]))
 
 (def STO_ACCESS_LOWER_BOUND 0)
@@ -45,18 +47,21 @@
                (errs/err-invalid-nested-type (first c) (rest c) 'symbol)))
    })
 
-(defn sig->fn-call
-  [sig]
-  (let [[_ name args]
-        (re-matches #"([^()]+)\((.*)\)" sig)
-        types  (if (string/blank? args) [] (string/split args #","))
-        arity (count types)
+(defn create-fn-call
+  "
+  Return lambda function that will construct Yul call to
+  a function given its name and args.
+  "
+  [name args]
+  (let [arity (count args)
         blanks (repeat arity "%s")
         fmt-sig (str name "(" (string/join "," blanks) ")")]
+    
     (fn [& args]
-      (if (not (= (count args) arity))
-        (errs/err-arity-exception name (count args) arity)
-        (apply format fmt-sig args)))))
+        (if (not (= (count args) arity))
+          (errs/err-arity-exception name (count args) arity)
+          (apply format fmt-sig args))))
+  )
 
 (defn obtain-hash [val stringify?]
   (let [hash-bytes (Hash/sha3 (.getBytes val))]
@@ -78,24 +83,19 @@
   (format "%s(%s)" fn-name
           ;; Get all types of a function defintion.
           (string/join ","
-                       (map name
-                            (map (fn [v] (get (vec v) 1)) args)))))
-
+                       (map (fn [v]
+                              ((get (vec v) 1) ; TODO: use record
+                               els-types/to-sol-types
+                               )) args))))
 
 (defn def-to-signature
   "Converts elsers's external storage definitions to function signatures."
-  [def-name sto-types]
-  (let [ret-symbol (first sto-types)
-        types (rest sto-types)]
-    
-    (if (not (= ret-symbol '->))
-      (errs/err-incorrect-return-symbol ret-symbol))
-    
-    (format "%s(%s)" def-name
-            (string/join ","
-                         (map
-                          (fn [t]
-                            (name (first t))) (rest types))))))
+  [def-name args]    
+  (format "%s(%s)" def-name
+          (string/join ","
+                       (map
+                        (fn [a]
+                          ((:type a) els-types/to-sol-types)) args))))
 
 (defn args-to-symbols
   "
@@ -112,22 +112,6 @@
             :mutable? mutable?}))
          args))
 
-(defn sto-var-type
-  [sto-types]
-  (cond
-    (some #{'=>} sto-types)
-    {:map true}
-
-    :else
-    {:simple true}))
-
-(def supported-function-types ['defn 'defn-read])
-(defn function-type
-  [definition]
-  (if (some #{definition} supported-function-types)
-    definition
-    (errs/err-unsupported-function-def definition supported-function-types)))
-
 (defn extract-external-internal
   "Extract :external & :internal definitions from top-level object"
   [object]
@@ -138,22 +122,6 @@
         ex (:external x)
         in (:internal x)] ; Convert list to a map.
     x))
-
-;; ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SEMANTIC ANALYSIS FUNCTIONS
-
-(defn is-valid-def?
-  "Destructure form and validate correctness of its definition."
-  [form]
-  (let [[key name types & opts] form]
-    (println "key:" key)
-    (println "name:" name)
-    (println "types:" types)
-    (println "opts:" opts)
-    (if (not (= key 'def))
-      (errs/err-invalid-def-key key 'def name))
-    )
-  )
-
 
 ;; ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ PROCESSING FUNCTIONS
 
@@ -169,19 +137,20 @@
                          {:external [] :internal []}}]
       (reduce (fn [state [visibility defs]]
                 (reduce (fn [state def-form]
-                          (let [[_ c-name c-type val] def-form
-                                sig (format "%s()" c-name)
-                                var-def {:name c-name
+                          
+                          (let [destructured (destruct/destruct-def def-form)
+                                const-name (:name destructured)
+                                sig (format "%s()" const-name)
+                                var-def {:name const-name
                                          :selector (obtain-selector sig)
                                          :signature sig
                                          :fn-call sig
-                                         :body val
-                                         :return (args-to-symbols (rest c-type))}]
-                            (if (not (= (first c-type) '->))
-                              (errs/err-incorrect-return-symbol (first c-type)))
+                                         :body (:opts destructured)
+                                         :type (:type destructured)
+                                         :return (:ret destructured)}]
                             ;; Validate that name is capped.
-                            (if (not (= (str c-name) (string/upper-case c-name)))
-                              (errs/err-non-upper-case-const c-name)
+                            (if (not (= (str const-name) (string/upper-case const-name)))
+                              (errs/err-non-upper-case-const const-name)
                               
                               (-> state
                                   (update-in
@@ -198,11 +167,12 @@
     (reduce (fn [state def-form]
               (let [[_ event-name args] def-form
                     sig (defn-to-signature event-name args)
+                    arguments (args-to-symbols args)
                     var-def {:name event-name
                              :sig-hash (obtain-hash sig true)
                              :signature sig
-                             :fn-call (sig->fn-call sig)
-                             :args (args-to-symbols args)}]
+                             :fn-call (create-fn-call event-name arguments)
+                             :args arguments}]
                 (-> state
                     (update-in [:events] conj var-def))))
             initial-state
@@ -224,12 +194,12 @@
                                          :selector (obtain-selector sig)
                                          :signature sig
                                          :permissions access
-                                         :fn-call (sig->fn-call sig)
+                                         :fn-call (create-fn-call fn-name (args-to-symbols args))
                                          :args (args-to-symbols args)
-                                         :fn-type (function-type fn-type)
                                          :body body
                                          :return (args-to-symbols (second ret))}]
                             (validate-permissions write read)
+                            (create-fn-call fn-name (args-to-symbols args))
                             (-> state
                                 (update-in 
                                  [:functions visibility] 
@@ -249,29 +219,35 @@
     (reduce (fn [state [visibility defs]]
               
               (reduce (fn [state def-form]
-                        (println "def-form" (is-valid-def? def-form))
                         
-                        (let [[_ def-name sto-types & opts] def-form
+                        (let [destructured (destruct/destruct-def def-form)
+
                               ;; Use custom slot if specified, otherwise allocate new.
-                              custom-slot (when (map? (last opts)) (:slot (last opts)))
-                              slot (or custom-slot (:slot-counter state))
-                              ret (args-to-symbols (rest sto-types))
-                              t (sto-var-type sto-types)
-                              sig (def-to-signature def-name sto-types)
+                              custom-slot (:opts destructured)
+                              slot (or (:slot custom-slot) (:slot-counter state))
+                              sig (def-to-signature
+                                    (:name destructured)
+                                    (:args destructured))
+
                               ;; Increment counter if using auto-allocation.
                               new-counter (if custom-slot
                                             (:slot-counter state)
                                             (inc slot))
-                              var-def {:name def-name
+                              var-def {:name (:name destructured)
                                        :selector (obtain-selector sig)
                                        :signature sig
-                                       :args '() ; TODO: update for complex types.
+                                       :args (:args destructured)
                                        :slot slot
-                                       :return ret
-                                       :var-type t}]
+                                       :fn-call (create-fn-call 
+                                                 (:name destructured)
+                                                 (:args destructured))
+                                       :type (:type destructured)
+                                       :return (:ret destructured)}]
+
                           ;; Check for storage collision.
                           (if (some #{slot} (:occupied-slots state))
                             (errs/err-slot-collision slot)
+                            
                             (-> state
                                 (update-in [:storage visibility] conj var-def)
                                 (assoc :slot-counter new-counter)

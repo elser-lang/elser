@@ -5,12 +5,23 @@
 (def ADDR_REGEXP #"^0x[a-fA-F0-9]{40}$")
 
 (def elser-types
-  {:i256 ':i256
+  {
    :u256 ':u256
-   :bool ':bool 
+   :i256 ':i256
    :addr ':addr
+   :bool ':bool 
    :b32 ':b32
    })
+
+(def to-sol-types
+  {
+   :u256 'uint256
+   :i256 'int256
+   :addr 'address
+   :bool 'bool
+   :b32 'bytes32
+   }
+  )
 
 (def numeric [:u256 :i256])
 (def boolean [:bool])

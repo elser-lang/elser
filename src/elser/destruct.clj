@@ -7,11 +7,11 @@
 (def DEFN_SYMBOL 'defn)
 
 (def constant-form 'const)
-(def storage-base-type 'sto-base)
-(def storage-map 'sto-map)
-(def storage-list 'sto-list)
+(def base-type 'base)
+(def map-type 'map)
+(def list-type 'list)
 
-(defrecord def-form [name args ret opts])
+(defrecord def-form [name args ret opts type])
 (defrecord defn-form [name args access ret body])
 
 (declare form-type)
@@ -38,7 +38,7 @@
     ))
 
 (defn extract-args-and-ret
-  "Given possibly nested vector of types extracts arguments and return types."
+  "Given possibly nested vector of types extract arguments and return types."
   [types]
   (loop [i 0
          args []
@@ -54,23 +54,35 @@
         )
     ))
 
+(defn extract-def-type 
+  "Return type of a definition: (base | map | list)"
+  [first-type]
+  (cond
+
+    (= first-type 'map) map-type
+    (= first-type 'list) list-type
+    :else base-type
+
+    ))
+
 (defn destruct-def
   "Convert form list into def-form."
-  [form]
+  [form]  
   (let [[key name types & opts] form]
     (if (not (= key DEF_SYMBOL))
       (errs/err-invalid-def-key key 'def name))
     (if (not (= (first types) RETURN_SYMBOL))
       (errs/err-incorrect-return-symbol (first types)))
 
-    (let [result (form-type (second types) [])
+    (let [type-list (second types)
+          result (form-type type-list [])
           args-ret (extract-args-and-ret result)]
-      (println "result" result)
-      (println "args-ret" args-ret)
       (def-form.
         name
         (:args args-ret)
         (list {:name "_elser_ret_val" :type (:ret args-ret)})
-        (first opts))
+        (first opts)
+        (extract-def-type 
+         (first type-list)))
       )
     ))
