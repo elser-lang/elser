@@ -43,6 +43,8 @@
     (re-matches ADDR_REGEXP (str x))
     :addr
 
+    (contains? elser-types x) x
+
     (map? x)
     (cond
       ;; If object specified return, then we substitute it

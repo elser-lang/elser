@@ -107,11 +107,14 @@
 
                            (= op 'read!)
                            (do
+                             
                              (if (= (:r permissions) 0)
                                (errs/err-invalid-permissions
                                 symbols
-                                permissions '{:r 1}))                             
-                             (:type (typecheck (last symbols) types-env permissions)))))
+                                permissions '{:r 1}))
+
+                             ;; TODO: typecheck arguments.
+                             (typecheck-symbols sto-var types-env permissions))))
                        
                        :else
                        (let [l' (typecheck-symbols symbols types-env permissions)
@@ -141,7 +144,6 @@
                                   [(:name x)
                                    {:args (:args x)
                                     ;; Type of the function is its return.
-                                    ;; FIX: only 1-return is supported.
                                     :type (first (:return x))
                                     :permissions (:permissions x)}
                                    ])) [] definitions)]
