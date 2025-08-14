@@ -19,7 +19,7 @@
     (errs/err-sto-access-non-int [write read]))
   
   (if (not (and (check-access-bounds write)
-               (check-access-bounds read)))
+                (check-access-bounds read)))
     (errs/err-invalid-permission-value
      [write read]
      [STO_ACCESS_LOWER_BOUND
@@ -31,16 +31,16 @@
              (errs/err-invalid-nested-type (first c) (rest c) '())))
 
    :vec (fn [c]
-           (if (not (vector? (first (rest c))))
-             (errs/err-invalid-nested-type (first c) (rest c) '())))   
+          (if (not (vector? (first (rest c))))
+            (errs/err-invalid-nested-type (first c) (rest c) '())))   
 
    :map (fn [c]
           (if (not (map? (first (rest c))))
             (errs/err-invalid-nested-type (first c) (rest c) '{})))
 
    :string (fn [c]
-          (if (not (string? (first (rest c))))
-            (errs/err-invalid-nested-type (first c) (rest c) 'string)))
+             (if (not (string? (first (rest c))))
+               (errs/err-invalid-nested-type (first c) (rest c) 'string)))
 
    :symbol (fn [c]
              (if (not (symbol? (first (rest c))))
@@ -58,9 +58,9 @@
         fmt-sig (str name "(" (string/join "," blanks) ")")]
     
     (fn [& args]
-        (if (not (= (count args) arity))
-          (errs/err-arity-exception name (count args) arity)
-          (apply format fmt-sig args))))
+      (if (not (= (count args) arity))
+        (errs/err-arity-exception name (count args) arity)
+        (apply format fmt-sig args))))
   )
 
 (defn obtain-hash [val stringify?]
@@ -104,13 +104,13 @@
   "
   [args]
   (map-indexed (fn [i v]
-         (let [mutable? (some #{'mut} v)
-               arg-name (nth v 0)
-               arg-type (last v)]
-           {:name arg-name
-            :type arg-type
-            :mutable? mutable?}))
-         args))
+                 (let [mutable? (some #{'mut} v)
+                       arg-name (nth v 0)
+                       arg-type (last v)]
+                   {:name arg-name
+                    :type arg-type
+                    :mutable? mutable?}))
+               args))
 
 (defn extract-external-internal
   "Extract :external & :internal definitions from top-level object"
@@ -155,8 +155,8 @@
                               (-> state
                                   (update-in
                                    [:constants visibility] conj var-def)))))
-                          state
-                          defs))
+                        state
+                        defs))
               initial-state
               [[:external (:external definitions)]
                [:internal (:internal definitions)]]))))
@@ -239,7 +239,7 @@
                                        :args (:args destructured)
                                        :slot slot
                                        :fn-call (create-fn-call 
-                                                 (:name destructured)
+                                                 (str (:name destructured) "_sto_offset")
                                                  (:args destructured))
                                        :type (:type destructured)
                                        :return (:ret destructured)}]
@@ -266,43 +266,75 @@
 (defn collect-symbols
   "Produces a symbol table on a given AST."
   [ast]
-  (reduce
-   (fn [symbols form]
-     (cond
-       (not (list? form))
-       (errs/err-invalid-top-level-form form)
-       
-       ;; Namespace defintion.
-       (= 'ns (first form))
-       (do ((:symbol valid-form?) form)
+  (let [hash (atom {})]
+    (reduce
+     (fn [symbols form]
+       (cond
+         (not (list? form))
+         (errs/err-invalid-top-level-form form)
+         
+         ;; Namespace defintion.
+         (= 'ns (first form))
+         (do
+           (if (find @hash 'ns)
+             (errs/err-top-level-already-defined 'ns))
+           
+           (swap! hash assoc 'ns true)
+           ((:symbol valid-form?) form)
            (assoc (assoc symbols :pragma (last (last form)))
                   :ns (second form)))
 
-       (= 'constructor (first form))
-       (do ((:list valid-form?) form)
+         (= 'constructor (first form))
+         (do
+           (if (find @hash 'constructor)
+             (errs/err-top-level-already-defined 'constructor))
+           (swap! hash assoc 'constructor true)
+           ((:list valid-form?) form)
            (merge symbols (process-constructor form)))
 
-       (= 'events (first form))
-       (do ((:list valid-form?) form)
+         (= 'events (first form))
+         (do
+           (if (find @hash 'events)
+             (errs/err-top-level-already-defined 'events))
+           (swap! hash assoc 'events true)
+
+           ((:list valid-form?) form)
            (merge symbols (process-events form)))
 
-       (= 'constants (first form))
-       (do ((:list valid-form?) form)
+         (= 'constants (first form))
+         (do
+           (if (find @hash 'constants)
+             (errs/err-top-level-already-defined 'constants))
+           (swap! hash assoc 'constants true)
+
+           ((:list valid-form?) form)
            (merge symbols (process-constants form)))
 
-       (= 'transient (first form))
-       (do ((:list valid-form?) form)
+         (= 'transient (first form))
+         (do
+           (if (find @hash 'transient)
+             (errs/err-top-level-already-defined 'transient))
+           (swap! hash assoc 'transient true)
+           ((:list valid-form?) form)
            (merge symbols (process-transient form)))
-       
-       (= 'storage (first form))
-       (do ((:list valid-form?) form)
+         
+         (= 'storage (first form))
+         (do
+           (if (find @hash 'storage)
+             (errs/err-top-level-already-defined 'storage))
+           (swap! hash assoc 'storage true)
+           ((:list valid-form?) form)
            (merge symbols (process-storage form)))
-       
-       (= 'functions (first form))
-       (do ((:list valid-form?) form)       
+         
+         (= 'functions (first form))
+         (do
+           (if (find @hash 'functions)
+             (errs/err-top-level-already-defined 'functions))
+           (swap! hash assoc 'functions true)
+           ((:list valid-form?) form)       
            (merge symbols (process-functions form)))
-       
-       :else
-       symbols))
-   {}
-   ast))
+         
+         :else
+         symbols))
+     {}
+     ast)))

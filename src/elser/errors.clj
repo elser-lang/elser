@@ -33,6 +33,9 @@
 (defn err-invalid-top-level-form [s]
   (throw (Exception. (format "elser: top-level form must be a list (): %s" s))))
 
+(defn err-top-level-already-defined [s]
+  (throw (Exception. (format "elser: top-level form already defined: %s" s))))
+
 (defn err-invalid-ex-in-definition [s]
   (throw (Exception. (format "elser: invalid :external :internal definition: %s" s))))
 

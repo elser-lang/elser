@@ -1,4 +1,4 @@
-(defproject elser "0.0.1-alpha"
+(defproject elser "0.0.4-alpha"
   :description "Elser - explicit and structure-enforcing language for EVM."
   
   :dependencies [[org.clojure/clojure "1.11.1"]

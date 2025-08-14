@@ -70,7 +70,6 @@
                             (string/join "," val) ")")
                        )))]
 
-   ;; TODO: handle arrays/maps.
    ['write! (fn [sto-var val]
               (apply format "sstore(%s, %s)"
                       (cond
