@@ -135,7 +135,7 @@
                                                  (range 2 (count symbols))))))
 
                        ;; 'do' - evaluate all the elements of the list
-                       ;; and return the final evaluated element.
+                       ;; (it doesn't return anything).
                        (= f 'do)
                        (let [exprs (mapv
                                     (fn [sym] (compile
@@ -163,16 +163,24 @@
                              [_ _ cnd body post-iter] symbols
                              slt (assoc (vec symbols) 0 'let)]
                          ;; Validate that all parts of the 'loop' are present.
-                         (if 
-                             (some #{true} (map nil? [cnd body post-iter]))
+                         (if (some #{true} (map nil? [cnd body post-iter]))
                            (errs/err-incorrect-loop-def))
+
+                         (if (not (= (first cnd) 'while))
+                           (errs/err-incorrect-loop-part (first cnd) 'while))
+
+                         (if (not (= (first post-iter) 'step))
+                           (errs/err-incorrect-loop-part (first post-iter) 'step))
+                         
                          (doseq [[b _] (partition 2 (first (rest symbols)))]
                            (env/eset loop-env b b))
 
                          (format "for { %s } %s { %s }\n { %s }\n"
                                  yul-lets
                                  (compile (second cnd) loop-env sto-env)
-                                 (compile post-iter loop-env sto-env)
+                                 ;; Execute 'step' block as 'do'.
+                                 (compile (cons 'do (rest post-iter))
+                                          loop-env sto-env)
                                  (compile body loop-env sto-env)))
 
                        (= f 'transfer*)

@@ -64,6 +64,11 @@
   (throw (Exception.
           (format "elser: invalid loop defintion, should be (loop [binds] (cond) (body) (post-iter))"))))
 
+(defn err-incorrect-loop-part
+  [h w]
+  (throw (Exception.
+          (format "elser: invalid part of the loop: have %s | want %s" h w))))
+
 
 (defn err-incorrect-return-symbol
   [s]
