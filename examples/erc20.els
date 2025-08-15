@@ -1,8 +1,7 @@
 (ns ERC20 (:pragma "0.8.29"))
 
-(constructor (do
-	      (sto write! decimals 18)
-	      (sto write! distributor (caller))))
+(constructor (do (sto write! decimals 18)
+		 (sto write! distributor (caller))))
 
 (storage
  (:external
@@ -15,6 +14,7 @@
    (def distributor (-> (:addr)))
    )  
   ))
+
 
 (constants
  (:internal
@@ -38,66 +38,53 @@
    (defn transfer ((to :addr) (val :u256)) (@sto :w 1 :r 1) (-> ((ok mut :bool)))
      (let (
 	   callerBalance (sto read! balanceOf (caller))
-	   toBalance (sto read! balanceOf to)
-	   )
-       (do
-	(require (>= callerBalance val) ERR_BAD_BALANCE)
-	
-	(sto write! balanceOf (caller) (- callerBalance val))
-	 (sto write! balanceOf to (+ toBalance val))
+	   toBalance (sto read! balanceOf to))
+       
+       (require (>= callerBalance val) ERR_BAD_BALANCE)
+       
+       (sto write! balanceOf (caller) (- callerBalance val))
+       (sto write! balanceOf to (+ toBalance val))
 
-	 (emit! Transfer (caller) to val)
-	 
-	 (-> ok true)
-	 )
-       ))
+       (emit! Transfer (caller) to val)
+       
+       (-> ok true)))
    
 
    (defn approve ((spender :addr) (val :u256)) (@sto :w 1 :r 1) (-> ((ok mut :bool)))
-     (do
-      (sto write! allowance (caller) spender val)
-      (emit! Approval (caller) spender val)
-       (-> ok true)
-       ))
+     (sto write! allowance (caller) spender val)
+     (emit! Approval (caller) spender val)
+     (-> ok true))
    
 
    (defn transferFrom ((from :addr) (to :addr) (val :u256)) (@sto :w 2 :r 1) (-> ((ok mut :bool)))
      (let (
 	   fromAllowance (sto read! allowance from (caller))
-	   fromBalnace (sto read! balanceOf from)
-	   toBalance (sto read! balanceOf to)
-	   )
-       (do	
-	(require (>= fromAllowance val) ERR_BAD_ALLOWANCE)
-	(require (>= fromBalnace val) ERR_BAD_BALANCE)
+	   fromBalance (sto read! balanceOf from)
+	   toBalance (sto read! balanceOf to))
+       
+       (require (>= fromAllowance val) ERR_BAD_ALLOWANCE)
+       (require (>= fromBalance val) ERR_BAD_BALANCE)
 
-	 (sto write! allowance from (caller) (- fromAllowance val))
-	 (sto write! balanceOf from (- fromBalnace val))
-	 (sto write! balanceOf to (+ toBalance val))
+       (sto write! allowance from (caller) (- fromAllowance val))
+       (sto write! balanceOf from (- fromBalance val))
+       (sto write! balanceOf to (+ toBalance val))
 
-	 (emit! Transfer from to val)
+       (emit! Transfer from to val)
 
-	 (-> ok true)
-	 )
-       ))
+       (-> ok true)))
    
 
    (defn mintDistributor ((amt :u256)) (@sto :w 2 :r 2) (-> ())
      (let (_distrib (sto read! distributor))
 
-       (do
-	(require (= (caller) _distrib) ERR_NOT_DISTRIBUTOR)
-	
-	(let (
-	      distributorBalance (sto read! balanceOf _distrib)
-	      supply (sto read! totalSupply)
-	      )
-	  
-	  (sto write! balanceOf _distrib (+ distributorBalance amt))
-	  (sto write! totalSupply (+ supply amt))
-	  )
-	 )))
-   
+       (require (= (caller) _distrib) ERR_NOT_DISTRIBUTOR)
+       
+       (let (
+	     distributorBalance (sto read! balanceOf _distrib)
+	     supply (sto read! totalSupply))
+	 
+	 (sto write! balanceOf _distrib (+ distributorBalance amt))
+	 (sto write! totalSupply (+ supply amt)))))
    )
   ))
 

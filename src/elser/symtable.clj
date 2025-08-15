@@ -185,7 +185,7 @@
 
       (reduce (fn [state [visibility defs]]
                 (reduce (fn [state def-form]
-                          (let [[fn-type fn-name args access ret body] def-form
+                          (let [[fn-type fn-name args access ret & body] def-form
                                 access (apply hash-map (rest access))
                                 write (:w access)
                                 read (:r access)
@@ -196,7 +196,7 @@
                                          :permissions access
                                          :fn-call (create-fn-call fn-name (args-to-symbols args))
                                          :args (args-to-symbols args)
-                                         :body body
+                                         :body (cons 'do body) ; Wrap body into 'do' statement.
                                          :return (args-to-symbols (second ret))}]
                             (validate-permissions write read)
                             (create-fn-call fn-name (args-to-symbols args))
