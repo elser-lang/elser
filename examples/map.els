@@ -1,0 +1,20 @@
+(ns maps (:require "0.8.29"))
+
+(storage
+ (:internal
+  (
+   (def whitelist (-> (map :addr :bool)))   
+   )))
+
+(functions
+ (:external
+  (
+   (defn isWhitelisted ((user :addr)) (@sto :w 0 :r 1) (-> ((yes mut :bool)))
+     (-> yes (sto read! whitelist user)))
+
+   (defn allow ((user :addr)) (@sto :w 1 :r 0) (-> ())
+     (sto write! whitelist user true))
+
+   (defn ban ((user :addr)) (@sto :w 1 :r 0) (-> ())
+     (sto write! whitelist user false))
+   )))
