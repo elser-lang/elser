@@ -6,7 +6,7 @@
 
 (defn extract-code 
   "Extract code parts between START and END from stdout."
-  [start end]
+  [out start end]
   (->> (clojure.string/split out #"\n")
        (drop-while #(not= % start))
        (drop 1)
@@ -26,9 +26,9 @@
         {:keys [exit out err]} (apply sh/sh solc-cmd)]
 
     (if (zero? exit)
-      (let [bytecode (extract-code "Binary representation:" 
+      (let [bytecode (extract-code out "Binary representation:" 
                                    "Text representation:")
-            yul-optimized (extract-code "Pretty printed source:"
+            yul-optimized (extract-code out "Pretty printed source:"
                                         "Binary representation:")
             
             ;; Save artifacts (for the future).
