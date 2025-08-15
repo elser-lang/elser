@@ -4,7 +4,7 @@
 (defn err-eof-before-paren [] (throw (Exception. "elser: EOF before ')'")))
 
 (defn err-unexpected-tkn [s]
-  (throw (Exception. (format "elser: unexpected end of input: %s" s))))
+  (throw (Exception. (format "elser: unexpected token: %s" s))))
 
 (defn err-unbalanced
   [s]
@@ -33,10 +33,21 @@
 (defn err-invalid-top-level-form [s]
   (throw (Exception. (format "elser: top-level form must be a list (): %s" s))))
 
+(defn err-top-level-already-defined [s]
+  (throw (Exception. (format "elser: top-level form already defined: %s" s))))
+
+(defn err-invalid-ex-in-definition [s]
+  (throw (Exception. (format "elser: invalid :external :internal definition: %s" s))))
+
 (defn err-invalid-nested-type [in-form have want]
   (throw (Exception.
           (format "elser: invalid nested-type in form (%s): have %s | want %s"
                   in-form have want))))
+
+(defn err-invalid-nested-constr-form [have want]
+  (throw (Exception.
+          (format "elser: invalid nested form in (constructor): have %s | want %s"
+                  have want))))
 
 (defn err-arity-exception [f have want]
   (throw (Exception.
@@ -52,6 +63,17 @@
   []
   (throw (Exception.
           (format "elser: invalid loop defintion, should be (loop [binds] (cond) (body) (post-iter))"))))
+
+(defn err-incorrect-loop-part
+  [h w]
+  (throw (Exception.
+          (format "elser: invalid part of the loop: have %s | want %s" h w))))
+
+
+(defn err-incorrect-return-symbol
+  [s]
+  (throw (Exception.
+          (format "elser: return symbol should be '->', got %s" s))))
 
 (defn err-incorrect-arr-def
   [have]
@@ -71,8 +93,8 @@
 (defn err-set-on-immutable [t]
   (throw (Exception. (format "elser: set! for immutable: %s" t))))
 
-(defn err-invalid-def-key [h w]
-  (throw (Exception. (format "elser: invalid variable definition: have %s | want %s" h w))))
+(defn err-invalid-def-key [h w n]
+  (throw (Exception. (format "elser: (%s) invalid definition: have %s | want %s" n h w))))
 
 (defn err-invalid-permission-value [h w]
   (throw (Exception. (format "elser: invalid permission value: have %s | want %s" h w))))
@@ -82,7 +104,7 @@
                              f h w))))
 
 (defn err-sto-access-non-int [a]
-  (throw (Exception. (format "elser: invalid type for @sto access valie: %s" a))))
+  (throw (Exception. (format "elser: invalid type for @sto access value: %s" a))))
 
 (defn err-diff-types-comp [x y]
   (throw (Exception. (format "elser: comparing diff types: x %s | y %s" x y))))

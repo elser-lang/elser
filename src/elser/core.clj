@@ -2,8 +2,10 @@
   (:gen-class)
   (:require [elser.env :as env]
             [elser.printer :as prnt]
-            [elser.types :as types]            
-            [elser.reader :as reader]))
+            [elser.types :as types]
+            [elser.destruct :as destruct]
+            [elser.reader :as reader]
+            [clojure.string :as string]))
 
 (def yul-ns
   [
@@ -25,6 +27,7 @@
    
    ['and (fn [x y] (format "and(%s, %s)" x y))]
    ['or (fn [e o] (format "or(%s, %s)" e o))]
+   ['xor (fn [e o] (format "xor(%s, %s)" e o))]
    ['not (fn [e] (format "not(%s)" e))]
 
    ['caller (fn [] "caller()")]
@@ -32,17 +35,18 @@
    ['origin (fn [] "origin()")]
    ['self (fn [] "address()")]
    ['balance (fn [a] (format "balance(%s)" a))]
+   ['selfbalance (fn [] "selfbalance()")]
    ['timestamp (fn [] "timestamp()")]
+   ['number (fn [] "number()")]
 
    ['assert (fn [c] (format "if iszero(%s) { revert(0,0) }\n" c))]
    ['require (fn [c msg]
                (format
-                "if iszero(%s) { let err := \"%s\" mstore(0, err) revert(0,32) }\n"
+                "if iszero(%s) { let err := %s mstore(0, err) revert(0,32) }\n"
                 c msg))]
    
-   ;; fix: messages aren't displayed yet.
    ['revert (fn [msg] (format "let msg := \"%s\" mstore(0,msg) revert(0,32)\n" msg))]
-   ['emit! (fn [func args] (apply func args))]
+   ['emit! (fn [func & args] (apply func args))]
 
    ;; Control-flow statements
    ['if (fn [pred true-body false-body]
@@ -57,15 +61,62 @@
 
 (def sto-ns
   [
-   ['read! (fn [var-name & args]
-             (format "%s(%s)" var-name
-                     (if (nil? args)
-                       ""
-                       args)))]
+   ['read! (fn [sto-var val]
+             (format "sload(%s)"
+                     (cond
+                       (= (:type sto-var) destruct/base-type)
+                       (:slot sto-var)
 
-   ;; TODO: handle arrays/maps.
+                       (= (:type sto-var) destruct/map-type)
+                       ;; Call to the offset calculating function.
+                       (str (:name sto-var) "_sto_offset("
+                            (string/join "," val) ")")
+                       )))]
+
    ['write! (fn [sto-var val]
-              (format "sstore(%s, %s)" (:slot sto-var) val))]
+              (apply format "sstore(%s, %s)"
+                      (cond
+                        (= (:type sto-var) destruct/base-type)
+                        [(:slot sto-var) (first val)]
+
+                        (= (:type sto-var) destruct/map-type)
+                        [
+                         ;; Call to the offset calculating function.
+                         (str (:name sto-var) "_sto_offset("
+                             (string/join "," (pop val)) ")")
+                         ;; Value to store is the last element of VAL vector.
+                         (last val)]
+                        )))]
+   ])
+
+(def trn-ns
+  [
+   ['read! (fn [sto-var val]
+             (format "tload(%s)"
+                     (cond
+                       (= (:type sto-var) destruct/base-type)
+                       (:slot sto-var)
+
+                       (= (:type sto-var) destruct/map-type)
+                       ;; Call to the offset calculating function.
+                       (str (:name sto-var) "_sto_offset("
+                            (string/join "," val) ")")
+                       )))]
+
+   ['write! (fn [sto-var val]
+              (apply format "tstore(%s, %s)"
+                      (cond
+                        (= (:type sto-var) destruct/base-type)
+                        [(:slot sto-var) (first val)]
+
+                        (= (:type sto-var) destruct/map-type)
+                        [
+                         ;; Call to the offset calculating function.
+                         (str (:name sto-var) "_sto_offset("
+                             (string/join "," (pop val)) ")")
+                         ;; Value to store is the last element of VAL vector.
+                         (last val)]
+                        )))]
    ])
 
 (def types-ns
@@ -86,6 +137,7 @@
    
    ['and (fn [x y] (types/type-check-bool x y {:type :bool}))]
    ['or (fn [x y] (types/type-check-bool x y {:type :bool}))]
+   ['xor (fn [x y] (types/type-check-bool x y {:type :bool}))]
    ['not (fn [x] (types/type-check-bool-unary x {:type :bool}))]
 
    ['caller (fn [] {:type ':addr :mutable? nil})]
@@ -93,7 +145,9 @@
    ['origin (fn [] {:type ':addr :mutable? nil})]
    ['self (fn [] {:type ':addr :mutable? nil})]
    ['balance (fn [a] {:type ':u256 :mutable? nil})]
+   ['selfbalance (fn [] {:type ':u256 :mutable? nil})]
    ['timestamp (fn [] {:type ':u256 :mutable? nil})]
+   ['number (fn [] {:type ':u256 :mutable? nil})]
 
    ['assert (fn [x] (types/type-check-bool-unary x {:type :bool}))]
    ['require (fn [c msg] (types/type-check-bool-unary c {:type :bool}))]

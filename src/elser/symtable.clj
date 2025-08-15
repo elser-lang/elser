@@ -4,6 +4,8 @@
            [org.web3j.utils Numeric])
   (:require [clojure.string :as string]
             [elser.errors :as errs]
+            [elser.types :as els-types]
+            [elser.destruct :as destruct]
             [elser.core :as core]))
 
 (def STO_ACCESS_LOWER_BOUND 0)
@@ -17,25 +19,49 @@
     (errs/err-sto-access-non-int [write read]))
   
   (if (not (and (check-access-bounds write)
-               (check-access-bounds read)))
+                (check-access-bounds read)))
     (errs/err-invalid-permission-value
      [write read]
      [STO_ACCESS_LOWER_BOUND
       STO_ACCESS_UPPER_BOUND])))
- 
 
-(defn sig->fn-call
-  [sig]
-  (let [[_ name args]
-        (re-matches #"([^()]+)\((.*)\)" sig)
-        types  (if (string/blank? args) [] (string/split args #","))
-        arity (count types)
+(def valid-form?
+  {:list (fn [c]
+           (if (not (list? (first (rest c))))
+             (errs/err-invalid-nested-type (first c) (rest c) '())))
+
+   :vec (fn [c]
+          (if (not (vector? (first (rest c))))
+            (errs/err-invalid-nested-type (first c) (rest c) '())))   
+
+   :map (fn [c]
+          (if (not (map? (first (rest c))))
+            (errs/err-invalid-nested-type (first c) (rest c) '{})))
+
+   :string (fn [c]
+             (if (not (string? (first (rest c))))
+               (errs/err-invalid-nested-type (first c) (rest c) 'string)))
+
+   :symbol (fn [c]
+             (if (not (symbol? (first (rest c))))
+               (errs/err-invalid-nested-type (first c) (rest c) 'symbol)))
+   })
+
+(defn create-fn-call
+  "
+  Return lambda function that will construct Yul call to
+  a function given its name and args.
+  "
+  [name args]
+  (let [arity (count args)
         blanks (repeat arity "%s")
         fmt-sig (str name "(" (string/join "," blanks) ")")]
+    
     (fn [& args]
       (if (not (= (count args) arity))
         (errs/err-arity-exception name (count args) arity)
-        (apply format fmt-sig args)))))
+        (apply format fmt-sig args))))
+  )
 
 (defn obtain-hash [val stringify?]
   (let [hash-bytes (Hash/sha3 (.getBytes val))]
@@ -57,85 +83,80 @@
   (format "%s(%s)" fn-name
           ;; Get all types of a function defintion.
           (string/join ","
-                       (map name
-                            (map (fn [v] (get (vec v) 1)) args)))))
-
+                       (map (fn [v]
+                              ((get (vec v) 1) ; TODO: use record
+                               els-types/to-sol-types
+                               )) args))))
 
 (defn def-to-signature
   "Converts elsers's external storage definitions to function signatures."
-  [def-name sto-types]
+  [def-name args]    
   (format "%s(%s)" def-name
           (string/join ","
                        (map
-                        (fn [t]
-                          (name (first t))) sto-types))))
+                        (fn [a]
+                          ((:type a) els-types/to-sol-types)) args))))
 
 (defn args-to-symbols
   "
   Produces {:name ... :type ...} map on
-  a given [(arg_0 [mut] :type) ... (arg_n [mut] :type)]
+  a given ((arg_0 [mut] :type) ... (arg_n [mut] :type))
   "
   [args]
   (map-indexed (fn [i v]
-         (let [mutable? (some #{'mut} v)               
-               arg-name (nth v 0)
-               arg-type (last v)]
-           {:name arg-name
-            :type arg-type
-            :mutable? mutable?}))
-         args))
+                 (let [mutable? (some #{'mut} v)
+                       arg-name (nth v 0)
+                       arg-type (last v)]
+                   {:name arg-name
+                    :type arg-type
+                    :mutable? mutable?}))
+               args))
 
-(defn sto-var-type
-  [sto-types]
-  (cond
-    (some #{'=>} sto-types)
-    {:map true}
+(defn extract-external-internal
+  "Extract :external & :internal definitions from top-level object"
+  [object]
+  
+  (:list valid-form? (first (rest object))) ; Verify that it's a list.
+  
+  (let [x (apply hash-map (first (rest object)))
+        ex (:external x)
+        in (:internal x)] ; Convert list to a map.
+    x))
 
-    :else
-    {:simple true}))
+;; ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ PROCESSING FUNCTIONS
 
-(def supported-function-types ['defn 'defn-read])
-(defn function-type
-  [definition]
-  (if (some #{definition} supported-function-types)
-    definition
-    (errs/err-unsupported-function-def definition supported-function-types)))
-
-(defn process-ex-in
-  [objects]
-  (let [x (first (rest objects))
-        external (:external x)
-        internal (:internal x)]
-    {:external external
-     :internal internal}))
-
-;; TODO: all these 'process-*' functions should be combined into 1.
 (defn process-constructor [constructor]
-  {:constructor {:body (second constructor)}})
+  (let [body (rest constructor)]
+    (if (> (count body) 1)
+      (errs/err-invalid-nested-constr-form body '()))
+    {:constructor {:body (second constructor)}}))
 
 (defn process-constants [constants]
-  (let [definitions (process-ex-in constants)]
+  (let [definitions (extract-external-internal constants)]
     (let [initial-state {:constants
                          {:external [] :internal []}}]
       (reduce (fn [state [visibility defs]]
                 (reduce (fn [state def-form]
-                          (let [[_ c-name c-type val] def-form
-                                sig (format "%s()" c-name)
-                                var-def {:name c-name
+                          
+                          (let [destructured (destruct/destruct-def def-form)
+                                const-name (:name destructured)
+                                sig (format "%s()" const-name)
+                                var-def {:name const-name
                                          :selector (obtain-selector sig)
                                          :signature sig
                                          :fn-call sig
-                                         :body val
-                                         :return (args-to-symbols c-type)}]
+                                         :body (:opts destructured)
+                                         :type (:type destructured)
+                                         :return (:ret destructured)}]
                             ;; Validate that name is capped.
-                            (if (not (= (str c-name) (string/upper-case c-name)))
-                              (errs/err-non-upper-case-const c-name)
+                            (if (not (= (str const-name) (string/upper-case const-name)))
+                              (errs/err-non-upper-case-const const-name)
                               
                               (-> state
                                   (update-in
                                    [:constants visibility] conj var-def)))))
-                          state
-                          defs))
+                        state
+                        defs))
               initial-state
               [[:external (:external definitions)]
                [:internal (:internal definitions)]]))))
@@ -146,83 +167,87 @@
     (reduce (fn [state def-form]
               (let [[_ event-name args] def-form
                     sig (defn-to-signature event-name args)
+                    arguments (args-to-symbols args)
                     var-def {:name event-name
                              :sig-hash (obtain-hash sig true)
                              :signature sig
-                             :fn-call (sig->fn-call sig)
-                             :args (args-to-symbols args)}]
+                             :fn-call (create-fn-call event-name arguments)
+                             :args arguments}]
                 (-> state
                     (update-in [:events] conj var-def))))
             initial-state
             definitions)))
 
 (defn process-functions [functions]
-  (let [definitions (process-ex-in functions)]
+  (let [definitions (extract-external-internal functions)]
     (let [initial-state {:functions
                          {:external [] :internal []}}]
+
       (reduce (fn [state [visibility defs]]
                 (reduce (fn [state def-form]
-                          (let [[fn-type fn-name args access ret body] def-form
-                                write (:w (first access))
-                                read (:r (first access))
+                          (let [[fn-type fn-name args access ret & body] def-form
+                                access (apply hash-map (rest access))
+                                write (:w access)
+                                read (:r access)
                                 sig (defn-to-signature fn-name args)
                                 var-def {:name fn-name
                                          :selector (obtain-selector sig)
                                          :signature sig
-                                         :permissions (first access)
-                                         :fn-call (sig->fn-call sig)
+                                         :permissions access
+                                         :fn-call (create-fn-call fn-name (args-to-symbols args))
                                          :args (args-to-symbols args)
-                                         :fn-type (function-type fn-type)
-                                         :body body
+                                         :body (cons 'do body) ; Wrap body into 'do' statement.
                                          :return (args-to-symbols (second ret))}]
-                            (validate-permissions write read)                            
+                            (validate-permissions write read)
+                            (create-fn-call fn-name (args-to-symbols args))
                             (-> state
-                                (update-in [:functions visibility] conj var-def))))
+                                (update-in 
+                                 [:functions visibility] 
+                                 conj var-def))))
                         state
                         defs))
               initial-state
               [[:external (:external definitions)]
                [:internal (:internal definitions)]]))))
 
-;; FIX: this function:
-;; - can't increment storage counter for data that occupies more than 32 bytes.
-;; - looks ugly...
 (defn process-storage [storage]
-  (let [definitions (process-ex-in storage)
+  (let [definitions (extract-external-internal storage)
         initial-state {:slot-counter 0x00
                        :storage {:external [] :internal []}
                        :occupied-slots []}]
+    
     (reduce (fn [state [visibility defs]]
+              
               (reduce (fn [state def-form]
-                        (let [[_ def-name sto-types & opts] def-form
+                        
+                        (let [destructured (destruct/destruct-def def-form)
+
                               ;; Use custom slot if specified, otherwise allocate new.
-                              custom-slot (when (map? (last opts)) (:slot (last opts)))
-                              slot (or custom-slot (:slot-counter state))
-                              ret (args-to-symbols (subvec sto-types
-                                                           (- (count sto-types) 1)))
-                              t (sto-var-type sto-types)
-                              sto-types (if (:map t)
-                                          (reduce
-                                           (fn [v t] (conj v (list t)))
-                                           []
-                                           (drop-last
-                                            (remove #{'=>} sto-types)))
-                                          '[])
-                              sig (def-to-signature def-name sto-types)
+                              custom-slot (:opts destructured)
+                              slot (or (:slot custom-slot) (:slot-counter state))
+                              sig (def-to-signature
+                                    (:name destructured)
+                                    (:args destructured))
+
                               ;; Increment counter if using auto-allocation.
                               new-counter (if custom-slot
                                             (:slot-counter state)
                                             (inc slot))
-                              var-def {:name def-name
+                              var-def {:name (:name destructured)
                                        :selector (obtain-selector sig)
                                        :signature sig
-                                       :args (args-to-symbols sto-types)
+                                       :args (:args destructured)
                                        :slot slot
-                                       :return ret
-                                       :var-type t}]
+                                       :fn-call (create-fn-call 
+                                                 (str (:name destructured) "_sto_offset")
+                                                 (:args destructured))
+                                       :type (:type destructured)
+                                       :return (:ret destructured)}]
+
                           ;; Check for storage collision.
                           (if (some #{slot} (:occupied-slots state))
                             (errs/err-slot-collision slot)
+                            
                             (-> state
                                 (update-in [:storage visibility] conj var-def)
                                 (assoc :slot-counter new-counter)
@@ -230,68 +255,86 @@
                           ))
                       state
                       defs))
+            
             initial-state
             [[:external (:external definitions)]
              [:internal (:internal definitions)]])))
 
-(def valid-nested-type?
-  {:list (fn [c]
-           (if (not (list? (first (rest c))))
-             (errs/err-invalid-nested-type (first c) (rest c) '())))
-
-   :vec (fn [c]
-           (if (not (vector? (first (rest c))))
-             (errs/err-invalid-nested-type (first c) (rest c) '())))   
-
-   :map (fn [c]
-          (if (not (map? (first (rest c))))
-            (errs/err-invalid-nested-type (first c) (rest c) '{})))
-
-   :string (fn [c]
-          (if (not (string? (first (rest c))))
-            (errs/err-invalid-nested-type (first c) (rest c) 'string)))
-
-   :symbol (fn [c]
-             (if (not (symbol? (first (rest c))))
-               (errs/err-invalid-nested-type (first c) (rest c) 'symbol)))
-   })
+(defn process-transient [trn]
+  {:transient (process-storage `(storage (:internal ~(last trn))))})
 
 (defn collect-symbols
   "Produces a symbol table on a given AST."
   [ast]
-  (reduce
-   (fn [symbols form]
-     (cond
-       (not (list? form))
-       (errs/err-invalid-top-level-form form)
-       
-       ;; Namespace defintion.
-       (= 'ns (first form))
-       (do ((:symbol valid-nested-type?) form)
+  (let [hash (atom {})]
+    (reduce
+     (fn [symbols form]
+       (cond
+         (not (list? form))
+         (errs/err-invalid-top-level-form form)
+         
+         ;; Namespace defintion.
+         (= 'ns (first form))
+         (do
+           (if (find @hash 'ns)
+             (errs/err-top-level-already-defined 'ns))
+           
+           (swap! hash assoc 'ns true)
+           ((:symbol valid-form?) form)
            (assoc (assoc symbols :pragma (last (last form)))
                   :ns (second form)))
 
-       (= 'constructor (first form))
-       (do ((:list valid-nested-type?) form)
+         (= 'constructor (first form))
+         (do
+           (if (find @hash 'constructor)
+             (errs/err-top-level-already-defined 'constructor))
+           (swap! hash assoc 'constructor true)
+           ((:list valid-form?) form)
            (merge symbols (process-constructor form)))
 
-       (= 'events (first form))
-       (do ((:vec valid-nested-type?) form)
+         (= 'events (first form))
+         (do
+           (if (find @hash 'events)
+             (errs/err-top-level-already-defined 'events))
+           (swap! hash assoc 'events true)
+
+           ((:list valid-form?) form)
            (merge symbols (process-events form)))
 
-       (= 'constants (first form))
-       (do ((:map valid-nested-type?) form)
+         (= 'constants (first form))
+         (do
+           (if (find @hash 'constants)
+             (errs/err-top-level-already-defined 'constants))
+           (swap! hash assoc 'constants true)
+
+           ((:list valid-form?) form)
            (merge symbols (process-constants form)))
-       
-       (= 'storage (first form))
-       (do ((:map valid-nested-type?) form)
+
+         (= 'transient (first form))
+         (do
+           (if (find @hash 'transient)
+             (errs/err-top-level-already-defined 'transient))
+           (swap! hash assoc 'transient true)
+           ((:list valid-form?) form)
+           (merge symbols (process-transient form)))
+         
+         (= 'storage (first form))
+         (do
+           (if (find @hash 'storage)
+             (errs/err-top-level-already-defined 'storage))
+           (swap! hash assoc 'storage true)
+           ((:list valid-form?) form)
            (merge symbols (process-storage form)))
-       
-       (= 'functions (first form))
-       (do ((:map valid-nested-type?) form)       
+         
+         (= 'functions (first form))
+         (do
+           (if (find @hash 'functions)
+             (errs/err-top-level-already-defined 'functions))
+           (swap! hash assoc 'functions true)
+           ((:list valid-form?) form)       
            (merge symbols (process-functions form)))
-       
-       :else
-       symbols))
-   {}
-   ast))
+         
+         :else
+         symbols))
+     {}
+     ast)))

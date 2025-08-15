@@ -4,10 +4,9 @@
             [elser.symtable :as symtable]
             [elser.errors :as errs]
             [elser.env :as env]
+            [elser.destruct :as destruct]
             [clojure.string :as string]
             [clojure.pprint :refer [pprint]]))
-
-(def return-var "ret_val")
 
 (defn add-funcs-to-env
   "
@@ -18,11 +17,11 @@
         ;; fix: ugly code.
         funcs (into (:events symbols)
 
-               (into (into (:external (:constants symbols))
-                           (:internal (:constants symbols)))
-                     
-                     (into (:external (:functions symbols))
-                           (:internal (:functions symbols)))))
+                    (into (into (:external (:constants symbols))
+                                (:internal (:constants symbols)))
+                          
+                          (into (:external (:functions symbols))
+                                (:internal (:functions symbols)))))
         func-defs (reduce (fn [full x]
                             (conj full
                                   [(:name x) (:fn-call x)])) [] funcs)
@@ -59,8 +58,12 @@
                   (:internal (:storage symbols)))
         sto-defs (reduce (fn [full x]
                            (conj full
-                                 [(:name x) {:args (:args x) :slot (:slot x)
-                                             :type (:var-type x)}])) [] sto)
+                                 [(:name x) {:args (:args x)
+                                             :slot (:slot x)
+                                             :type (:type x)
+                                             :fn-call (:fn-call x)
+                                             :name (:name x)
+                                             :return (:return x)}])) [] sto)
         ]
     (do
       ;; Set core storage operations.
@@ -88,7 +91,6 @@
     
     :else symbols))
 
-;; TODO: finish 'return' statement!!!!
 (defn compile
   [symbols yul-env sto-env]
   (cond
@@ -122,16 +124,18 @@
                                                        sto-env
                                                        ))))
                                              [] local-defs))]
+                         ;; Bind local variables.
                          (doseq [[b _] local-defs]
-                           (env/eset let-env b b))                         
+                           (env/eset let-env b b))
+                         ;; Execute 'let' body.
                          (str yul-lets "\n"
                               (string/join "\n"
-                              (mapv (fn [i] (compile (nth symbols i)
-                                                    let-env sto-env))
-                                    (range 2 (count symbols))))))
+                                           (mapv (fn [i] (compile (nth symbols i)
+                                                                 let-env sto-env))
+                                                 (range 2 (count symbols))))))
 
                        ;; 'do' - evaluate all the elements of the list
-                       ;; and return the final evaluated element.
+                       ;; (it doesn't return anything).
                        (= f 'do)
                        (let [exprs (mapv
                                     (fn [sym] (compile
@@ -159,16 +163,24 @@
                              [_ _ cnd body post-iter] symbols
                              slt (assoc (vec symbols) 0 'let)]
                          ;; Validate that all parts of the 'loop' are present.
-                         (if 
-                             (some #{true} (map nil? [cnd body post-iter]))
+                         (if (some #{true} (map nil? [cnd body post-iter]))
                            (errs/err-incorrect-loop-def))
+
+                         (if (not (= (first cnd) 'while))
+                           (errs/err-incorrect-loop-part (first cnd) 'while))
+
+                         (if (not (= (first post-iter) 'step))
+                           (errs/err-incorrect-loop-part (first post-iter) 'step))
+                         
                          (doseq [[b _] (partition 2 (first (rest symbols)))]
                            (env/eset loop-env b b))
 
                          (format "for { %s } %s { %s }\n { %s }\n"
                                  yul-lets
                                  (compile (second cnd) loop-env sto-env)
-                                 (compile post-iter loop-env sto-env)
+                                 ;; Execute 'step' block as 'do'.
+                                 (compile (cons 'do (rest post-iter))
+                                          loop-env sto-env)
                                  (compile body loop-env sto-env)))
 
                        (= f 'transfer*)
@@ -177,22 +189,23 @@
                          (format "pop(call(gas(),%s,%s,0,0,0,0))" to value))
                        
 
-                       ;; 'sto' - a storage-access function.
-                       ;; TODO: sstore(...) should use slot
-                       ;; not variable name!
+                       ;; 'sto' - a storage-access keyword.
                        (= f 'sto)
                        (let [op (second symbols)
                              sto-var (nth symbols 2)
                              var-slot (:slot (env/eget sto-env sto-var))]
                          (cond
-                           (= op 'write!)
+                           (or (= op 'write!) (= op 'read!))
                            (apply (env/eget sto-env op)
-                                  [(env/eget sto-env sto-var)
-                                   (compile (last symbols)
-                                            yul-env sto-env)])
+                                  (list
+                                   (env/eget sto-env sto-var)
+                                   
+                                   (compile-symbols (nthrest symbols 3)
+                                            yul-env sto-env)))
 
                            (= op 'read!)
-                           (apply (env/eget sto-env op) [sto-var])
+                           (apply (env/eget sto-env op)
+                                  (list (env/eget sto-env sto-var) ))
 
                            :else
                            (errs/err-bind-not-found op)))
@@ -230,39 +243,73 @@
 (defn compile-top-level-return [definition]
   (if (empty? (:return definition))
     ""
-    "        return(0,32)\n")) ;; TODO: implement
+    "        return(0,32)\n"))
 
-;; TODO: handle dynamics data types.
-(defn compile-storage-var-body [definition yul-env]
-  (let [var-type (:var-type definition)]
-    (cond
-      (:simple var-type)      
-      (format "          %s := sload(%s)\n" (:name
-                                             (first
-                                              (:return definition))) (:slot definition))
 
-      ;; TODO: handle maps and arrays.
-      :else
-      (format "          %s := sload(%s)\n" return-var (:slot definition)))))
-
-(defn compile-event-body [definition]
+;; TODO: pad the value to 32 bytes.
+(defn compile-map-offset-body
+  "Return calculation of a storage offset for a map as `keccak256(h(k) . p)`"
+  [definition]
   (loop [code-lines []
+         slot (:slot definition)
          mem-counter 0
          args (:args definition)]
     (if (= (count args) 0)
+
+      ;; Return offset value.
       (str (string/join "\n" code-lines) "\n"
-           (format "          log0(0,%s)" mem-counter) "\n")
+           (format "          %s := %s" 
+                   (:name (first (:return definition)))
+                   slot) "\n")
+      
       (recur
        (conj code-lines
-             (format "          mstore(%s, %s)"
-                     mem-counter (:name (first args))))
-       (+ mem-counter 32)
+             ;; HASH of concatenated KEY and SLOT
+             (format "
+          mstore(%s, %s) mstore(%s, %s)
+          let %s := keccak256(%s, %s)
+"
+                     ;; mstore(offset, key)
+                     mem-counter (:name (first args))
+                     ;; mstore(offset+32, slot)
+                     (+ mem-counter 32) slot
+                     ;; let offset_x := keccak256(offset, size)
+                     (str "offset_" mem-counter) mem-counter 64
+                     ))
+       (str "offset_" mem-counter); Updated slot equals to the value of OFFSET
+       (+ mem-counter 64)
        (rest args)
        ))))
 
+;; TODO: handle lists.
+(defn compile-storage-var-body [definition yul-env]
+  (let [t (:type definition)
+        return (first (:return definition))]
+    (cond
+      ;; (:u256 :i256 :b32 :addr) stored in storage.
+      (= t destruct/base-type)
+      (format "          %s := sload(%s)\n"
+              (:name
+               (first
+                (:return definition))) (:slot definition))
+
+      (= t destruct/map-type)
+      (format "          %s := sload(%s)\n"
+              (:name
+               (first
+                (:return definition)))
+              ;; sload(offset_func(args...))
+              (apply
+               (:fn-call definition)
+               (map (fn [a] (:name a)) (:args definition))
+               ))
+      )))
+
 (defn compile-function-body
+  "Compile list of s-expressions of Elser function to Yul operations."
   [definition yul-env sto-env]
-  (let [body (compile (:body definition) yul-env sto-env)
+  (let [defn-body (:body definition)
+        body (compile defn-body yul-env sto-env)
         lines (string/split body #"\n")]
     body))
 
@@ -275,14 +322,41 @@
       (conj whole
             (str (:name a)))) [] args)))
 
+(defn compile-event-body
+  "
+  Return event as a Yul function to invoke that executes
+  LOGx opcode with variable number of arguments read from memory.
+  "
+  [definition]
+  (loop [code-lines []
+         mem-counter 0
+         args (:args definition)]
+    (if (= (count args) 0)
+      
+      (str (string/join "\n" code-lines) "\n"
+           (format "          log0(0,%s)" mem-counter) "\n")
+      
+      (recur
+       (conj code-lines
+             (format "          mstore(%s, %s)"
+                     mem-counter (:name (first args))))
+       (+ mem-counter 32)
+       (rest args)
+       ))))
+
 (defn elser-func-body->yul-func-body
+  "
+  Produce 3 possible types of compiled function body based on def-type:
+  1. defn body of extneral or internal function.
+  2. def body of an external storage vairable.
+  3. def body of an external constant.
+  "
   [definition yul-env sto-env def-type]
   (cond
     (contains? def-type :functions)
     (compile-function-body definition yul-env sto-env)
     
-    (contains? def-type :storage)
-    ;; Storage getters will just use `sload()`
+    (contains? def-type :storage) ; Storage getters will just use `sload()`
     (compile-storage-var-body definition yul-env)
 
     (contains? def-type :constants)
@@ -295,7 +369,7 @@
 
 (defn elser-ret->yul-ret [ret]
   (if (empty? ret)
-    ""    
+    ""
     (format " -> %s"
             (string/join
              ", "
@@ -304,18 +378,34 @@
                             "ret_val")) ret)))))
 
 (defn elser-func->yul-func
-  "Translates individual elser function into a Yul function."
+  "Compile Elser's s-expressions to Yul operations, based on def-type."
   [definition yul-env sto-env def-type]
+  
+  ;; TODO: separete this special case better.
+  (str
+   
+   (if (= (:type definition) destruct/map-type)
+    ;; Create special offset calculating function.
+    (str
+     "      function " (:name definition) "_sto_offset("
+     ;; Compile arguments + returns.
+     (elser-args->yul-args (:args definition)) ")" (elser-ret->yul-ret
+                                                    (:return definition)) "{\n"
+     ;; Compile offset calculation.
+     (compile-map-offset-body definition)
+     "      }\n")
+    )
+  
   (str
    "      function " (:name definition) "("
-   ;; 1) Compile arguments + returns.
+   ;; Compile arguments + returns.
    (elser-args->yul-args (:args definition)) ")" (elser-ret->yul-ret
-                                                    (:return definition)) "{\n"
-   ;; 2) Compile function body.
+                                                  (:return definition)) "{\n"
+   ;; Compile function body.
    (elser-func-body->yul-func-body definition
-    (init-local-env yul-env definition)
-    sto-env def-type)
-   "      }\n"))
+                                   (init-local-env yul-env definition)
+                                   sto-env def-type)
+   "      }\n")))
 
 (defn constructor-code [constructor yul-env sto-env]
   (if (nil? constructor)
@@ -333,15 +423,16 @@
           ""
           definitions))
 
-(defn generate-getters
+(defn functions-code
+  "Return Yul function for each definition inside definitions vector."
   [definitions yul-env sto-env def-type]
   (reduce (fn [full definition]
-            (str full
-                 (elser-func->yul-func
-                  definition yul-env sto-env def-type))) "" definitions))
+            (str
+             full (elser-func->yul-func
+                   definition yul-env sto-env def-type))) "" definitions))
 
 (defn compile-to-yul
-  "This function is doing a template-based Yul code generation."
+  "Template-based Yul code generation."
   [symbols yul-env sto-env]  
   (let [contract-name (:ns symbols)
         constructor (:constructor symbols)
@@ -349,49 +440,51 @@
         constants (:constants symbols)
         storage (:storage symbols)
         functions (:functions symbols)]
-    ;; TODO: add constructor code (if there's one).
-    (str "object \"" contract-name "\" {\n"
-         "  code {\n"
-         (constructor-code constructor yul-env sto-env)
-         "    datacopy(0, dataoffset(\"runtime\"), datasize(\"runtime\"))\n"
-         "    return(0, datasize(\"runtime\"))\n"
-         "  }\n"
-         "  object \"runtime\" {\n"
-         "    code {\n"         
-         ;;~~~~~~~  Dispatcher
-         "      // Dispatcher\n"
-         "      switch shr(224, calldataload(0))\n"
-         (dispatcher-code (:external functions) yul-env)
-         "      // Storage-access\n"
-         (dispatcher-code (:external storage) yul-env)
-         "      // External constants\n"         
-         (dispatcher-code (:external constants) yul-env)
-         "      default { revert(0,0) }\n\n"
-         "\n"
-         (generate-getters (:external functions)
-                         yul-env sto-env {:functions true})
-         (generate-getters (:internal functions)
-                         yul-env sto-env {:functions true})
-         "\n"
-         "      /* -------- storage access ---------- */\n"
-         (generate-getters (:external storage) yul-env '{} {:storage true})
-         (generate-getters (:internal storage) yul-env '{} {:storage true})
-         "      /* -------- constants ---------- */\n"
-         (generate-getters (:external constants) yul-env '{} {:constants true})
-         (generate-getters (:internal constants) yul-env '{} {:constants true})
-         "      /* -------- events ---------- */\n"         
-         (generate-getters events yul-env '{} {:events true})
-         "\n    }\n"
-         "  }\n"
-         "}")))
+    (str
+     ;; Constructor code.
+     "object \"" contract-name "\" {\n"
+     "  code {\n"
+     (constructor-code constructor yul-env sto-env)
+     "    datacopy(0, dataoffset(\"runtime\"), datasize(\"runtime\"))\n" ; Copy runtime code.
+     "    return(0, datasize(\"runtime\"))\n"
+     "  }\n"
 
-;; TODO: MUST extend `yul-env` with :outer envs that will contains:
-;; - storage binds
-;; - memory binds
-;; - calldata binds
+     ;; Runtime code.
+     "  object \"runtime\" {\n"
+     "    code {\n"         
+     ;; Function dispatcher for external definitions.
+     "      // Dispatcher\n"
+     "      switch shr(224, calldataload(0))\n"
+     (dispatcher-code (:external functions) yul-env)
+     "      // Storage-access\n"
+     (dispatcher-code (:external storage) yul-env)
+     "      // External constants\n"         
+     (dispatcher-code (:external constants) yul-env)
+     "      default { revert(0,0) }\n\n"
+     "\n"
+
+     "      /* -------- external functions ---------- */\n"
+     (functions-code (:external functions)
+                     yul-env sto-env {:functions true})
+     "      /* -------- internal functions ---------- */\n"
+     (functions-code (:internal functions)
+                     yul-env sto-env {:functions true})
+     "\n"
+     "      /* -------- storage access ---------- */\n"
+     (functions-code (:external storage) yul-env '{} {:storage true})
+     (functions-code (:internal storage) yul-env '{} {:storage true})
+     "      /* -------- constants ---------- */\n"
+     (functions-code (:external constants) yul-env '{} {:constants true})
+     (functions-code (:internal constants) yul-env '{} {:constants true})
+     "      /* -------- events ---------- */\n"
+     (functions-code events yul-env '{} {:events true})
+     "\n    }\n"
+     "  }\n"
+     "}")))
+
 (defn symtable-to-yul
   [symbols yul-env sto-ns]
-    (compile-to-yul
-     symbols
-     (add-funcs-to-env symbols yul-env)
-     (init-storage-env symbols sto-ns)))
+  (compile-to-yul
+   symbols
+   (add-funcs-to-env symbols yul-env)
+   (init-storage-env symbols sto-ns)))

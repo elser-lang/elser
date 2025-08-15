@@ -3,63 +3,69 @@
 (constructor (sto write! owner (caller)))
 
 (events
- [
- (def Paused [(acc :u256)])
- (def Unpaused [(acc :u256)])
- ])
+ (
+  (def Paused ((when :u256)))
+  (def Unpaused ((when :u256)))
+  ))
 
 (constants
- {:internal [
- ;; The operation failed because the contract is paused.
- (def ERR_ENFORCED_PAUSE [(e :u256)] 69)
- ;; The operation failed because the contract is not paused.
- (def ERR_EXPECTED_PAUSE [(e :u256)] 70)
- ]})
+ (:internal
+  (
+   ;; The operation failed because the contract is paused.
+   (def ERR_ENFORCED_PAUSE (-> (:u256)) 69)
+   
+   ;; The operation failed because the contract is not paused.
+   (def ERR_EXPECTED_PAUSE (-> (:u256)) 70)   
+   )))
 
 (storage
- {:external [
- (def owner [(o :addr)])
- (def paused [(p :bool)])
- ]})
+ (:external
+  (
+   (def owner (-> (:addr)) {:slot 69})
+   (def paused (-> (:bool)))
+   )))
 
 (functions
- {:external
- [
- (defn emergencyWithdraw [] @sto{:w 2 :r 1} (-> [])
-   (do
-    (invoke! onlyOwner)
-    (invoke! withdraw (balance (self)))
-     (invoke! pause)))
- 
- (defn withdraw [(amount :u256)] @sto{:w 0 :r 1} (-> [])
-   (do (invoke! onlyOwner)
-       (transfer* (caller) amount)))
+ (:external
+  (
+   
+   (defn emergencyWithdraw () (@sto :w 2 :r 1) (-> ())
+     (invoke! onlyOwner)
+     (invoke! withdraw (balance (self)))
+     (invoke! pause))
+   
+   (defn withdraw ((amount :u256)) (@sto :w 0 :r 1) (-> ())
+     (invoke! onlyOwner)
+     (transfer* (caller) amount))
 
- (defn getBalance [] @sto{:w 0 :r 0} (-> [(b mut :u256)])
-   (-> b (balance (self))))
- ]
- 
- :internal [
- 
- ;; Triggers stopped state.
- (defn pause [] @sto{:w 2 :r 1} (-> [])
-   (do (invoke! requireNotPaused)
-       (sto write! paused true)))
+   (defn getBalance () (@sto :w 0 :r 0) (-> ((b mut :u256)))
+     (-> b (balance (self))))
+   
 
- ;; Returns to normal state. 
- (defn unpause [] @sto{:w 2 :r 1} (-> [])
-   (do (invoke! requirePaused)
-       (sto write! paused false)))
- 
- (defn requireNotPaused [] @sto{:w 0 :r 1} (-> [])
-   (require (sto read! paused) ERR_ENFORCED_PAUSE))
+   ;; triggers stopped state.
+   (defn pause () (@sto :w 2 :r 1) (-> ())
+     (invoke! requireNotPaused)
+     (emit! Paused (timestamp))
+     (sto write! paused true))
+   
+   ;; Returns to normal state. 
+   (defn unpause () (@sto :w 2 :r 1) (-> ())
+     (invoke! requirePaused)
+     (emit! Unpaused (timestamp))
+     (sto write! paused false))
+   )
+  
+  :internal
+  (
+   
+   (defn requireNotPaused () (@sto :w 0 :r 1) (-> ())
+     (require (sto read! paused) ERR_ENFORCED_PAUSE))
 
- (defn requirePaused [] @sto{:w 0 :r 1} (-> [])
-   (require (not (sto read! paused)) ERR_ENFORCED_PAUSE))
+   (defn requirePaused () (@sto :w 0 :r 1) (-> ())
+     (require (not (sto read! paused)) ERR_ENFORCED_PAUSE))
 
-
- (defn onlyOwner [] @sto{:w 0 :r 1} (-> [])
-   (assert (= (caller) (sto read! owner))))
- ] 
- })
+   (defn onlyOwner () (@sto :w 0 :r 1) (-> ())
+     (assert (= (caller) (sto read! owner))))
+   )
+  ))
 

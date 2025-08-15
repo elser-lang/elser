@@ -5,12 +5,23 @@
 (def ADDR_REGEXP #"^0x[a-fA-F0-9]{40}$")
 
 (def elser-types
-  {:i256 ':i256
+  {
    :u256 ':u256
-   :bool ':bool 
+   :i256 ':i256
    :addr ':addr
+   :bool ':bool 
    :b32 ':b32
    })
+
+(def to-sol-types
+  {
+   :u256 'uint256
+   :i256 'int256
+   :addr 'address
+   :bool 'bool
+   :b32 'bytes32
+   }
+  )
 
 (def numeric [:u256 :i256])
 (def boolean [:bool])
@@ -32,11 +43,17 @@
     (re-matches ADDR_REGEXP (str x))
     :addr
 
+    (contains? elser-types x) x
+
     (map? x)
     (cond
+      ;; If object specified return, then we substitute it
+      ;; for its return type.
+      ;; E.g., add(:u256,:u256) -> :u256 is of type (:u256)
       (get x :return)
       (infer-type (first (get x :return)))
-      
+
+      ;; If type is specified use it.
       (get x :type)
       (get x :type)
       

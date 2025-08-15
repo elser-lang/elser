@@ -1,5 +1,0 @@
-(ns empty (:pragma "0"))
-
-(constructor ())
-
-(storage ())
