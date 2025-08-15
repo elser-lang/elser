@@ -1,6 +1,6 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-Elser is a domain-specific language (DSL) for smart-contract development. It emphasizes explicitness for critical and mutative operations and enforces a structured approach to smart-contract building. It natively compiles Yul and uses `solc` for optimization and final EVM bytecode generation.
+Elser is a domain-specific language (DSL) for smart-contract development. It emphasizes explicitness for critical and mutative operations and enforces a structured approach to smart-contract building. It natively compiles to Yul and uses `solc` for optimization and final EVM bytecode generation.
 
 **ELSER** stands for ***E**xplicit **L**isp-like **S**mart-contract language with **E**nforced structure and **R**estrictness*.
 
