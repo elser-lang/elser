@@ -27,6 +27,7 @@
    
    ['and (fn [x y] (format "and(%s, %s)" x y))]
    ['or (fn [e o] (format "or(%s, %s)" e o))]
+   ['xor (fn [e o] (format "xor(%s, %s)" e o))]
    ['not (fn [e] (format "not(%s)" e))]
 
    ['caller (fn [] "caller()")]
@@ -34,7 +35,9 @@
    ['origin (fn [] "origin()")]
    ['self (fn [] "address()")]
    ['balance (fn [a] (format "balance(%s)" a))]
+   ['selfbalance (fn [] "selfbalance()")]
    ['timestamp (fn [] "timestamp()")]
+   ['number (fn [] "number()")]
 
    ['assert (fn [c] (format "if iszero(%s) { revert(0,0) }\n" c))]
    ['require (fn [c msg]
@@ -86,6 +89,36 @@
                         )))]
    ])
 
+(def trn-ns
+  [
+   ['read! (fn [sto-var val]
+             (format "tload(%s)"
+                     (cond
+                       (= (:type sto-var) destruct/base-type)
+                       (:slot sto-var)
+
+                       (= (:type sto-var) destruct/map-type)
+                       ;; Call to the offset calculating function.
+                       (str (:name sto-var) "_sto_offset("
+                            (string/join "," val) ")")
+                       )))]
+
+   ['write! (fn [sto-var val]
+              (apply format "tstore(%s, %s)"
+                      (cond
+                        (= (:type sto-var) destruct/base-type)
+                        [(:slot sto-var) (first val)]
+
+                        (= (:type sto-var) destruct/map-type)
+                        [
+                         ;; Call to the offset calculating function.
+                         (str (:name sto-var) "_sto_offset("
+                             (string/join "," (pop val)) ")")
+                         ;; Value to store is the last element of VAL vector.
+                         (last val)]
+                        )))]
+   ])
+
 (def types-ns
   [
    ['+ (fn [x y] (types/type-check-numeric x y nil))]
@@ -104,6 +137,7 @@
    
    ['and (fn [x y] (types/type-check-bool x y {:type :bool}))]
    ['or (fn [x y] (types/type-check-bool x y {:type :bool}))]
+   ['xor (fn [x y] (types/type-check-bool x y {:type :bool}))]
    ['not (fn [x] (types/type-check-bool-unary x {:type :bool}))]
 
    ['caller (fn [] {:type ':addr :mutable? nil})]
@@ -111,7 +145,9 @@
    ['origin (fn [] {:type ':addr :mutable? nil})]
    ['self (fn [] {:type ':addr :mutable? nil})]
    ['balance (fn [a] {:type ':u256 :mutable? nil})]
+   ['selfbalance (fn [] {:type ':u256 :mutable? nil})]
    ['timestamp (fn [] {:type ':u256 :mutable? nil})]
+   ['number (fn [] {:type ':u256 :mutable? nil})]
 
    ['assert (fn [x] (types/type-check-bool-unary x {:type :bool}))]
    ['require (fn [c msg] (types/type-check-bool-unary c {:type :bool}))]
