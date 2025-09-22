@@ -2,7 +2,6 @@
   (:gen-class)
   (:require [elser.env :as env]
             [elser.reader :as reader]
-            [elser.printer :as printer]
             [elser.errors :as errs]
             [elser.core :as core]
             [elser.symtable :as symtable]
@@ -22,12 +21,12 @@
 (doseq [[k v] core/types-ns] (env/eset types-env k v))
 
 (defn READ
-  [inp]
-  (reader/read-str inp))
+  [inp src]
+  (reader/read-str inp src))
 
 (defn rep
   [inp]
-  (let [ast (READ inp)]
+  (let [ast (READ inp "./")]
     (symtable/collect-symbols `(constructor ~ast))))
 
 (defn repl-loop []
@@ -42,7 +41,7 @@
 
 (defn process-file [file options]
   (let [code (slurp file)
-        ast (READ (str "(" code ")"))]
+        ast (READ (str "(" code ")") file)]
     (cond
       (:ast options) 
       (do (println "Generated AST:")
