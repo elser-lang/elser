@@ -10,11 +10,12 @@
 (defn fmt-err
   "Returns formatted error metadata."
   [metadata]
+  (println "metadata:" metadata)
   (str
    "\n"
    (format "| Error: %s" (:description metadata)) "\n"
    (format "| >>> %s" (:path metadata)) "\n"
-   (format "| L:%s %s" (:line metadata) (:chars metadata)) "\n"
+   (format "| L:%s \"%s\"" (:line metadata) (:chars metadata)) "\n"
    ))
 
 (defn esc [s]

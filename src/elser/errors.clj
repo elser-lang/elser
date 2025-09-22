@@ -1,7 +1,11 @@
 (ns elser.errors
-  (:gen-class))
+  (:gen-class)
+  (:require [elser.printer :as printer]))
 
 (defn err-eof-before-paren [] (throw (Exception. "elser: EOF before ')'")))
+
+(defn err-throw [metadata]
+  (throw (Exception. (printer/fmt-err metadata))))
 
 (defn err-unexpected-tkn [s]
   (throw (Exception. (format "elser: unexpected token: %s" s))))

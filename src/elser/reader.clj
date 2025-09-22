@@ -39,6 +39,13 @@
    (vec (rdr :tokens))
    @(:pos rdr)))
 
+(defn rback
+  "Returns the token at the previous position"
+  [rdr]
+  (get
+   (vec (rdr :tokens))
+   (- @(:pos rdr) 1)))
+
 (defn tokenize-with-metadata
   "Returns tokens with line metadata."
   [in]
@@ -103,10 +110,18 @@
     
     (let [raw (rpeek rdr)
           token (:char raw)]
-      
+
       (cond
-        (= token end) (do (rnext rdr) lst)        
-        (nil? token) (errs/err-eof-before-paren)        
+        (= token end) (do (rnext rdr) lst)
+        
+        (nil? token) (errs/err-throw
+                      (printer/err-meta
+                       (str "EOF before " "'" end "'")
+                       (str beg "..." end)
+                       src
+                       (:line (rback rdr))
+                       ""))
+        
         :else (recur (conj lst (read-form rdr src)))))))
 
 (defn read-form
@@ -129,16 +144,15 @@
                                     (list 'with-meta data meta)))
       (= tkn ")") (errs/err-unbalanced tkn)
       (= tkn "(") (apply list (read-list rdr "(" ")" src))
-      
-      (= tkn "}") (errs/err-unbalanced "'{ }'")
-      (= tkn "{") (apply hash-map (read-list rdr "{" "}" src))
 
       ;; Ban these brackets.
-      (= tkn "]") (errs/err-unexpected-tkn tkn)
-      (= tkn "[") (do
-                    (printer/print-err
-                     (printer/err-meta "Unexpected token" tkn src (:line raw) ""))
-                    (errs/err-unexpected-tkn tkn))
+      (or (= tkn "]")
+          (= tkn "[")) (errs/err-throw
+                        (printer/err-meta "Unexpected token" tkn src (:line raw) ""))
+
+      (or (= tkn "}")
+          (= tkn "{")) (errs/err-throw
+                        (printer/err-meta "Unexpected token" tkn src (:line raw) ""))
       
       :else (read-atom rdr src))))
 
