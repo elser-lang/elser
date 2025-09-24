@@ -1,6 +1,7 @@
 (ns elser.printer
   (:gen-class)
-  (:require [clojure.string :as string]))
+  (:require [clojure.string :as string]
+            [clansi]))
 
 (defrecord ErrorMetadata [description chars path line pos])
 
@@ -10,13 +11,18 @@
 (defn fmt-err
   "Returns formatted error metadata."
   [metadata]
-  (println "metadata:" metadata)
   (str
    "\n"
    (format "| Error: %s" (:description metadata)) "\n"
    (format "| >>> %s" (:path metadata)) "\n"
-   (format "| L:%s \"%s\"" (:line metadata) (:chars metadata)) "\n"
+   (format "| L:%s %s" (:line metadata) (:chars metadata)) "\n"
    ))
+
+(defn highlight [char] (clansi/style char :inverse :underline :red))
+
+(defn highlight-char-in-ctx
+  [ctx char]
+  (string/replace ctx char (highlight char)))
 
 (defn esc [s]
   (-> s (string/replace "\\" "\\\\")
