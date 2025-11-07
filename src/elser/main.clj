@@ -2,6 +2,7 @@
   (:gen-class)
   (:require [elser.env :as env]
             [elser.reader :as reader]
+            [elser.printer :as printer]
             [elser.errors :as errs]
             [elser.core :as core]
             [elser.symtable :as symtable]
@@ -9,10 +10,10 @@
             [elser.compiler :as compiler]
             [elser.evmcodegen :as evmcodegen]            
             [elser.cli :as cli]
-            [clojure.repl :as clj-repl]
-            [clojure.pprint :refer [pprint]]))
+            [elser.constants :as const]
+            [clojure.repl :as clj-repl]))
 
-(def prompt (fn [] (print ">>> ") (flush)))
+;;; --------------------------------- Initializing Environments ---------------------------------
 
 (def yul-env (env/env))
 (doseq [[k v] core/yul-ns] (env/eset yul-env k v))
@@ -20,54 +21,64 @@
 (def types-env (env/env))
 (doseq [[k v] core/types-ns] (env/eset types-env k v))
 
-(defn READ
-  [inp src]
-  (reader/read-str inp src))
+;;; --------------------------------- REPL ---------------------------------
 
-(defn rep
+(defn READ [inp src] (reader/read-str inp src))
+
+(defn read-eval-print
   [inp]
   (let [ast (READ inp "./")]
     (symtable/collect-symbols `(constructor ~ast))))
 
 (defn repl-loop []
-  (prompt)
-  (let [line (read-line)]
-    ; Skip comments
-    (if (not= \; (get line 0))
-      (try
-        (println (rep line))
-        (catch Throwable e (clj-repl/pst e))))
-      (recur)))
+  (const/elser-prompt)
 
-(defn process-file [file options]
+  (let [line (read-line)]
+
+    (if (not= const/elser-comment (get line 0))
+      (try
+        (println (read-eval-print line))           
+        (catch Throwable e (clj-repl/pst e))))
+    
+    (recur)))
+
+(defn process-file
+  "
+  Apply compilation phases (to the content of a FILE)
+  that correspond to provided OPTIONS.
+  "
+  [file options]
   (let [code (slurp file)
         ast (READ (str "(" code ")") file)]
     (cond
-      (:ast options) 
-      (do (println "Generated AST:")
-          (clojure.pprint/pprint ast))
-
+      (:ast options)
+      (printer/pretty-print-phase "AST" ast)
+      
       (:symtable options)
-      (let [symbols (symtable/collect-symbols ast)]
-        (println "Generated symbol-table:")
-        (clojure.pprint/pprint symbols))
+      (printer/pretty-print-phase "SYMBOL TABLE" (symtable/collect-symbols ast))
 
       (:yul options)
-      (let [symbols (symtable/collect-symbols ast)
-            yul (compiler/symtable-to-yul symbols yul-env core/sto-ns)]
-        (println "Generated Yul:")
-        (println yul))
+      (printer/print-phase "YUL"
+                           (-> (symtable/collect-symbols ast)
+                               (compiler/symtable-to-yul yul-env core/sto-ns)))
+
 
       (:compile options)
       (let [symbols (symtable/collect-symbols ast)
-            _ (typecheck/check-types symbols types-env)
-            yul (compiler/symtable-to-yul symbols yul-env core/sto-ns)]
-        (do (evmcodegen/compile-to-evm yul (:ns symbols) (:pragma symbols))
-            (println "EVM bytecode was successfully generated.")))))
-  (System/exit 0))
+            _ (typecheck/check-types symbols types-env)]
+        
+        (printer/print-phase
+         
+         "EVM BYTECODE" (-> symbols
+                            (compiler/symtable-to-yul yul-env core/sto-ns)
+                            (evmcodegen/compile-to-evm (:ns symbols) (:pragma symbols))
+                            )))))
+  
+  (cli/exit 0))
   
 (defn -main [& args]
-  (let [{:keys [file options exit-message ok?]} (cli/validate-args args)]
+  (let [{:keys [file options exit-message ok?]} (cli/extract-cli-args args)]
+
     (when exit-message
       (cli/exit (if ok? 0 1) exit-message))
     
