@@ -71,7 +71,7 @@
       (doseq [[k v] sto-ns] (env/eset sto-env k v)))
     sto-env))
 
-(declare compile)
+(declare compile-elser)
 
 (defn compile-symbols
   [symbols yul-env sto-env]
@@ -79,19 +79,19 @@
     (symbol? symbols) (env/eget yul-env symbols)
     
     (map? symbols) (let [k (keys symbols)
-                         v (doall (map (fn [x] (compile x yul-env sto-env))
+                         v (doall (map (fn [x] (compile-elser x yul-env sto-env))
                                        (vals symbols)))]
                      (zipmap k v))
     
-    (seq? symbols) (mapv (fn [x] (compile x yul-env sto-env))
+    (seq? symbols) (mapv (fn [x] (compile-elser x yul-env sto-env))
                          symbols)
     
-    (vector? symbols) (mapv (fn [x] (compile x yul-env sto-env))
+    (vector? symbols) (mapv (fn [x] (compile-elser x yul-env sto-env))
                             symbols)
     
     :else symbols))
 
-(defn compile
+(defn compile-elser
   [symbols yul-env sto-env]
   (cond
     ;; TODO: what to do wtih this case?
@@ -118,7 +118,7 @@
                                                      (format
                                                       "let %s := %s"
                                                       (first l)
-                                                      (compile
+                                                      (compile-elser
                                                        (nth l 1)
                                                        let-env
                                                        sto-env
@@ -130,7 +130,7 @@
                          ;; Execute 'let' body.
                          (str yul-lets "\n"
                               (string/join "\n"
-                                           (mapv (fn [i] (compile (nth symbols i)
+                                           (mapv (fn [i] (compile-elser (nth symbols i)
                                                                  let-env sto-env))
                                                  (range 2 (count symbols))))))
 
@@ -138,7 +138,7 @@
                        ;; (it doesn't return anything).
                        (= f 'do)
                        (let [exprs (mapv
-                                    (fn [sym] (compile
+                                    (fn [sym] (compile-elser
                                               sym
                                               yul-env
                                               sto-env
@@ -150,14 +150,14 @@
 
                        ;; 'invoke!' - function invocation.
                        (= f 'invoke!)
-                       (compile (rest symbols) yul-env sto-env)
+                       (compile-elser (rest symbols) yul-env sto-env)
 
                        ;; 'loop' in Yul (loop [binds] (cond) (post-iter) (body))
                        ;; in elser (loop [binds] (cond) (body) (post-iter)).
                        (= f 'loop)
                        (let [loop-env (env/env yul-env)
                              ;; Compile bindings like 'let'.
-                             yul-lets (compile
+                             yul-lets (compile-elser
                                        (list 'let (first (rest symbols)) nil)
                                        loop-env sto-env)
                              [_ _ cnd body post-iter] symbols
@@ -177,15 +177,15 @@
 
                          (format "for { %s } %s { %s }\n { %s }\n"
                                  yul-lets
-                                 (compile (second cnd) loop-env sto-env)
+                                 (compile-elser (second cnd) loop-env sto-env)
                                  ;; Execute 'step' block as 'do'.
-                                 (compile (cons 'do (rest post-iter))
+                                 (compile-elser (cons 'do (rest post-iter))
                                           loop-env sto-env)
-                                 (compile body loop-env sto-env)))
+                                 (compile-elser body loop-env sto-env)))
 
                        (= f 'transfer*)
-                       (let [to (compile (second symbols) yul-env sto-env)
-                             value (compile (last symbols) yul-env sto-env)]
+                       (let [to (compile-elser (second symbols) yul-env sto-env)
+                             value (compile-elser (last symbols) yul-env sto-env)]
                          (format "pop(call(gas(),%s,%s,0,0,0,0))" to value))
                        
 

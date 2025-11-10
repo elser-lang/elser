@@ -24,7 +24,7 @@
   )
 
 (def numeric [:u256 :i256])
-(def boolean [:bool])
+(def bool [:bool])
 (def addr [:addr])
 (def all [:u256 :i256 :bool :addr :b32])
 
@@ -135,7 +135,7 @@
   and returns required return type.
   "
   [x y ret-t]
-  (do (type-check-op boolean [(type-check x) (type-check y)])
+  (do (type-check-op bool [(type-check x) (type-check y)])
       ret-t))
 
 (defn type-check-all
@@ -166,7 +166,7 @@
 
 (defn type-check-bool-or-num
   [x y ret-t]
-  (do (type-check-op (into boolean numeric)  [(type-check x) (type-check y)])
+  (do (type-check-op (into bool numeric)  [(type-check x) (type-check y)])
       ret-t))
 
 (defn type-check-bool-unary
@@ -175,5 +175,5 @@
   and returns required return type.
   "
   [x ret-t]
-  (do (type-check-op boolean [(type-check x)])
+  (do (type-check-op bool [(type-check x)])
       ret-t))

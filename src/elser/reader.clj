@@ -1,20 +1,22 @@
 (ns elser.reader
   (:gen-class)
   (:require [clojure.string :as string]
-            [elser.errors :as errs]))
+            [elser.errors :as errs]
+            [elser.printer :as printer]))
 
-(def TOKENS-REGEX
+(def tokens-regex
   #"[\s,]*(~@|[\[\]{}()'`~^@]|\"(?:[\\].|[^\\\"])*\"?|;.*|[^\s\[\]{}()'\"`@,;]+)")
 
-;----------------- TYPES -----------------
+(def badstr-regex #"^\"")
+(def str-regex #"^\"((?:[\\].|[^\\\"])*)\"$")
+(def int-regex #"^-?[0-9]+$")
+(def newline-regex #"(?:\n\s*)+")
 
-(def BADSTR-REGEX #"^\"")
-(def STR-TYPE #"^\"((?:[\\].|[^\\\"])*)\"$")
-(def INT-TYPE #"^-?[0-9]+$")
+(defrecord Token [char line])
 
 ;; Reader
-(defn rdr [tokens]
-  {:tokens tokens :pos (atom 0)})
+(defn rdr [tokens ctx]
+  {:tokens tokens :pos (atom 0) :ctx ctx})
 
 (defn rnext
   "Returns a token in the current position
@@ -31,29 +33,73 @@
    (vec (rdr :tokens))
    @(:pos rdr)))
 
+(defn rback
+  "Returns the token at the previous position"
+  [rdr]
+  (get
+   (vec (rdr :tokens))
+   (- @(:pos rdr) 1)))
+
+(defn get-line-ctx
+  "Return trimmed context string for line-number of raw-token."
+  [rdr raw-token]
+  (string/trim (get (:ctx rdr) (:line raw-token))))
+
+(defn tokenize-with-metadata
+  "Return a vector with a vector of tokens with line metadata, and context map."
+  [in]
+  (let [raw-tokens  (filter #(not= \; (first %))
+                            (map first (re-seq tokens-regex in)))]
+    (loop [line 1
+           raw raw-tokens
+           tokens '[]
+           ctx '{}]
+      
+      (if (= (count raw) 0) [tokens ctx]
+
+        (let [char (first raw)
+              newlines (re-find newline-regex char)
+              new-line (if newlines
+                         (+ line (count (re-seq #"\n" newlines)))
+                         line)]
+          
+          (recur           
+           new-line
+           
+           (next raw)
+
+           (conj tokens (Token. (string/trim char) new-line))
+
+           (assoc ctx new-line
+                  (str (get ctx new-line) char))
+           )
+          
+          ))
+      )
+    ))
+
 ;; Basically, this functon is a lexer
 (defn tokenize
   "Tokenizes an input string and returns
   a list of tokens. Executes lexical
   analysis step."
   [in]
-  (rdr
-   (filter (fn [x] (not= \; (first x)))
-           (map string/trim
-                (map second (re-seq TOKENS-REGEX in))))))
+  (let [[tokens ctx] (tokenize-with-metadata in)]
+    (rdr tokens ctx)))
 
 (defn unesc [s]
   (-> s (string/replace "\\\\" "\u029e")
-        (string/replace "\\\"" "\"")
-        (string/replace "\\n" "\n")
-        (string/replace "\u029e" "\\")))
+      (string/replace "\\\"" "\"")
+      (string/replace "\\n" "\n")
+      (string/replace "\u029e" "\\")))
 
-(defn read-atom [rdr]
-  (let [token (rnext rdr)]
+(defn read-atom [rdr src]
+  (let [raw (rnext rdr)
+        token (:char raw)]    
     (cond
-      (re-seq INT-TYPE token) (Integer/parseInt token)
-      (re-seq STR-TYPE token) (unesc (second (re-find STR-TYPE token)))
-      (re-seq BADSTR-REGEX token) (errs/err-unexpected-tkn token)
+      (re-seq int-regex token) (Integer/parseInt token)
+      (re-seq str-regex token) (unesc (second (re-find str-regex token)))
+      (re-seq badstr-regex token) (errs/unexpected-token token)
       (= token "nil") nil
       (= \: (get token 0)) (keyword (subs token 1))
       (= token "true") true
@@ -62,42 +108,57 @@
 
 (declare read-form)
 
-(defn read-list [rdr beg end]
-  (assert (= beg (rnext rdr)))
+(defn read-list [rdr beg end src]
+  (assert (= beg (:char (rnext rdr))))
   (loop [lst []]
-    (let [token (rpeek rdr)]
+    
+    (let [raw (rpeek rdr)
+          token (:char raw)]
+
       (cond
         (= token end) (do (rnext rdr) lst)
-        (nil? token) (errs/err-eof-before-paren)
-        :else (recur (conj lst (read-form rdr)))))))
+        
+        (nil? token) (errs/err-throw
+                      (printer/err-meta
+                       (str "EOF before " "'" end "'")
+                       (str beg " ... " end)
+                       src
+                       (:line (rback rdr))
+                       ""))
+        
+        :else (recur (conj lst (read-form rdr src)))))))
 
 (defn read-form
   "Produces AST on tokenized input.
   Executes syntactical analysis step."
-  [rdr]
-  (let [tkn (rpeek rdr)]
+  [rdr src]
+  (let [raw (rpeek rdr)
+        tkn (:char raw)]
     (cond
-      (= tkn "'") (do (rnext rdr) (list 'quote (read-form rdr)))
-      (= tkn "`") (do (rnext rdr) (list 'quasiquote (read-form rdr)))
-      (= tkn "~") (do (rnext rdr) (list 'unquote (read-form rdr)))
-      ;; Permissions symbol => jump to the permissions map.
-      (= tkn "@") (do (rnext rdr) (list (read-form rdr)))
-      (= tkn "~@") (do (rnext rdr) (list 'splice-unquote (read-form rdr)))
-      (= tkn "^") (do (rnext rdr) (let [meta (read-form rdr)
-                                       data (read-form rdr)]
-                                   (list 'with-meta data meta)))
-      (= tkn ")") (errs/err-unbalanced "'( )'")
-      (= tkn "(") (apply list (read-list rdr "(" ")"))
+      (= tkn "'") (do (rnext rdr) (list 'quote (read-form rdr src)))
+      (= tkn "`") (do (rnext rdr) (list 'quasiquote (read-form rdr src)))
+      (= tkn "~") (do (rnext rdr) (list 'unquote (read-form rdr src)))
       
-      (= tkn "}") (errs/err-unbalanced "'{ }'")
-      (= tkn "{") (apply hash-map (read-list rdr "{" "}"))
+      ;; Permissions symbol => jump to the permissions map.
+      (= tkn "@") (do (rnext rdr) (list (read-form rdr src)))
+      (= tkn "~@") (do (rnext rdr) (list 'splice-unquote (read-form rdr src)))
+      (= tkn "^") (do (rnext rdr) (let [meta (read-form rdr src)
+                                        data (read-form rdr src)]
+                                    (list 'with-meta data meta)))
+      
+      (= tkn ")") (errs/err-unbalanced tkn)
+      (= tkn "(") (apply list (read-list rdr "(" ")" src))
 
       ;; Ban these brackets.
-      (= tkn "]") (errs/err-unexpected-tkn tkn)
-      (= tkn "[") (errs/err-unexpected-tkn tkn)
+      (or (= tkn "]")
+          (= tkn "[")
+          (= tkn "}")
+          (= tkn "{")) (errs/err-throw
+                        (printer/err-meta (errs/unexpected-token tkn)
+                                          (printer/highlight-char-in-ctx
+                                           (get-line-ctx rdr raw) tkn)
+                                          src (:line raw) ""))
       
-      :else (read-atom rdr))))
+      :else (read-atom rdr src))))
 
-(defn read-str [in]  
-  (read-form
-   (tokenize in)))
+(defn read-str [in src] (read-form (tokenize in) src))
